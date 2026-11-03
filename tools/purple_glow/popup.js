@@ -85,3 +85,62 @@ function pageEffect(action, mode, color) {
   addEventListener('scroll', cleanup, true); addEventListener('resize', cleanup); motion.addEventListener('change', cleanup);
   return `Эффект включён: областей ${candidates.length}. При изменении или прокрутке страницы отключится.`;
 }
+
+// CSS is opt-in and belongs to one exact scheme/host/port.
+const cssEditor = document.getElementById('site-css');
+const siteLabel = document.getElementById('site');
+let initialOrigin = null;
+async function currentSite() {
+  const [tab] = await chrome.tabs.query({active: true, currentWindow: true});
+  if (!tab || !/^https?:/.test(tab.url || '')) throw new Error('Откройте сайт http или https.');
+  return {tab, origin: new URL(tab.url).origin};
+}
+currentSite().then(async ({origin}) => {
+  initialOrigin = origin;
+  siteLabel.textContent = origin;
+  const key = 'site-css:' + origin;
+  const data = await chrome.storage.local.get(key);
+  cssEditor.value = data[key] || '';
+}).catch(e => {siteLabel.textContent = e.message;});
+async function withSite(fn) {
+  try {
+    const current = await currentSite();
+    if (!initialOrigin || current.origin !== initialOrigin) throw new Error('Сайт изменился. Закройте и откройте меню заново.');
+    await fn(current);
+  } catch (e) {status.textContent = 'Ошибка: ' + e.message;}
+}
+document.getElementById('css-save').addEventListener('click', () => withSite(async ({origin}) => {
+  validateUserCss(cssEditor.value);
+  await chrome.storage.local.set({['site-css:' + origin]: cssEditor.value});
+  status.textContent = 'CSS сохранён только для ' + origin + '; он не включён автоматически.';
+}));
+document.getElementById('css-delete').addEventListener('click', () => withSite(async ({origin}) => {
+  await chrome.storage.local.remove('site-css:' + origin); cssEditor.value = '';
+  status.textContent = 'Сохранённый CSS удалён. Уже применённый стиль выключается отдельной кнопкой.';
+}));
+document.getElementById('css-apply').addEventListener('click', () => withSite(async ({tab, origin}) => {
+  const css = validateUserCss(cssEditor.value);
+  const [r] = await chrome.scripting.executeScript({target:{tabId:tab.id},func:siteCssAction,args:['apply',origin,css]});
+  status.textContent = r.result;
+}));
+document.getElementById('css-off').addEventListener('click', () => withSite(async ({tab, origin}) => {
+  const [r] = await chrome.scripting.executeScript({target:{tabId:tab.id},func:siteCssAction,args:['remove',origin,'']});
+  status.textContent = r.result;
+}));
+function siteCssAction(action, origin, css) {
+  if (location.origin !== origin) return 'Адрес страницы изменился; CSS не применён.';
+  const key = '__purpleUserCssCleanup_8f4d02';
+  if (typeof window[key] === 'function') window[key]();
+  if (action === 'remove') return 'CSS текущего сайта выключен.';
+  const style = document.createElement('style');
+  style.textContent = css;
+  (document.head || document.documentElement).appendChild(style);
+  function cleanup() {
+    style.remove();
+    window.removeEventListener('pagehide', cleanup);
+    delete window[key];
+  }
+  window[key] = cleanup;
+  window.addEventListener('pagehide', cleanup);
+  return 'CSS отправлен в текущий документ; фактическое применение не подтверждено и может блокироваться политикой сайта. После перезагрузки или перехода на другой документ стиль не включится автоматически.';
+}
