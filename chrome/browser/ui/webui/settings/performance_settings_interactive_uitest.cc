@@ -435,14 +435,14 @@ IN_PROC_BROWSER_TEST_F(MemorySaverAggressivenessSettingsInteractiveTest,
       CheckMemorySaverModePrefState(MemorySaverModeState::kEnabled),
 
       // Test aggressiveness options
-      WaitForElementToRender(kPerformanceSettingsPage, kMediumQuery),
-      WaitForButtonStateChange(kPerformanceSettingsPage, kMediumQuery, true),
+      WaitForElementToRender(kPerformanceSettingsPage, kAggressiveQuery),
+      WaitForButtonStateChange(kPerformanceSettingsPage, kAggressiveQuery, true),
       TestMemorySaverModeAggressivenessPrefState(
-          kAggressiveQuery, MemorySaverModeAggressiveness::kAggressive),
+          kMediumQuery, MemorySaverModeAggressiveness::kMedium),
       TestMemorySaverModeAggressivenessPrefState(
           kConservativeQuery, MemorySaverModeAggressiveness::kConservative),
       TestMemorySaverModeAggressivenessPrefState(
-          kMediumQuery, MemorySaverModeAggressiveness::kMedium));
+          kAggressiveQuery, MemorySaverModeAggressiveness::kAggressive));
 }
 
 IN_PROC_BROWSER_TEST_F(MemorySaverAggressivenessSettingsInteractiveTest,
@@ -473,16 +473,16 @@ IN_PROC_BROWSER_TEST_F(MemorySaverAggressivenessSettingsInteractiveTest,
                                  histogram_tester),
 
       // Test aggressiveness options
-      WaitForElementToRender(kPerformanceSettingsPage, kMediumQuery),
-      WaitForButtonStateChange(kPerformanceSettingsPage, kMediumQuery, true),
+      WaitForElementToRender(kPerformanceSettingsPage, kAggressiveQuery),
+      WaitForButtonStateChange(kPerformanceSettingsPage, kAggressiveQuery, true),
       TestMemorySaverModeAggressivenessLogged(
-          kAggressiveQuery, MemorySaverModeAggressiveness::kAggressive,
+          kMediumQuery, MemorySaverModeAggressiveness::kMedium,
           histogram_tester),
       TestMemorySaverModeAggressivenessLogged(
           kConservativeQuery, MemorySaverModeAggressiveness::kConservative,
           histogram_tester),
       TestMemorySaverModeAggressivenessLogged(
-          kMediumQuery, MemorySaverModeAggressiveness::kMedium,
+          kAggressiveQuery, MemorySaverModeAggressiveness::kAggressive,
           histogram_tester));
 }
 
