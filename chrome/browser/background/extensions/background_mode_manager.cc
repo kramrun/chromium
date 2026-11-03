@@ -358,7 +358,10 @@ BackgroundModeManager::~BackgroundModeManager() {
 
 // static
 void BackgroundModeManager::RegisterPrefs(PrefRegistrySimple* registry) {
-  registry->RegisterBooleanPref(prefs::kBackgroundModeEnabled, true);
+  // Do not keep a Linux browser running solely for background extensions by
+  // default. Users and administrators can still enable background mode.
+  registry->RegisterBooleanPref(prefs::kBackgroundModeEnabled,
+                                !BUILDFLAG(IS_LINUX));
 #if BUILDFLAG(IS_LINUX) && BUILDFLAG(USE_DBUS)
   registry->RegisterBooleanPref(prefs::kBackgroundModePortalAutostartGranted,
                                 false);
