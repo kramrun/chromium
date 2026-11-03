@@ -571,6 +571,11 @@ export class SettingsAppearancePageElement extends
   }
 
   // <if expr="is_linux">
+  protected onLinuxPanelTransparencyClick_() {
+    OpenWindowProxyImpl.getInstance().openUrl(
+        'chrome://flags/#linux-ui-transparency');
+  }
+
   protected onLinuxAnimationSpeedClick_() {
     OpenWindowProxyImpl.getInstance().openUrl(
         'chrome://flags/#linux-ui-animation-speed');

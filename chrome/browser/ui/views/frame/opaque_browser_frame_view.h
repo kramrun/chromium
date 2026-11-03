@@ -110,6 +110,13 @@ class OpaqueBrowserFrameView : public BrowserFrameView,
   int WebAppButtonHeight() const override;
 
  protected:
+#if BUILDFLAG(IS_LINUX)
+  // Whether to exclude the top area from the Wayland opaque region. This is
+  // deliberately independent of theme changes so it remains conservative.
+  bool GetLinuxFrameTranslucencyRequested() const;
+  int GetLinuxFrameBackgroundOpacity() const;
+#endif
+
   views::Button* minimize_button() const { return minimize_button_; }
   views::Button* maximize_button() const { return maximize_button_; }
   views::Button* restore_button() const { return restore_button_; }

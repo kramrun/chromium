@@ -4,6 +4,12 @@
   <message name="IDS_SETTINGS_OPENS_IN_NEW_TAB" desc="ARIA (accessibility) label describing a link which opens in a new tab.">
     Opens in new tab
   </message>
+  <message name="IDS_SETTINGS_LINUX_PANEL_TRANSPARENCY" desc="Label for a link to experimental Linux panel transparency settings.">
+    Browser panel transparency (experimental)
+  </message>
+  <message name="IDS_SETTINGS_LINUX_PANEL_TRANSPARENCY_DESCRIPTION" desc="Description of the Linux panel transparency experiment.">
+    Adjust background opacity. Restart to apply; availability depends on the window system.
+  </message>
   <message name="IDS_SETTINGS_LINUX_ANIMATION_SPEED" desc="Label for a link to the experimental Linux browser animation duration setting.">
     Browser animation duration (experimental)
   </message>

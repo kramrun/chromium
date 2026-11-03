@@ -139,6 +139,14 @@ float BrowserFrameViewLinux::GetRestoredCornerRadiusDip() const {
 }
 
 int BrowserFrameViewLinux::GetTranslucentTopAreaHeight() const {
+#if BUILDFLAG(IS_LINUX)
+  if (GetLinuxFrameTranslucencyRequested()) {
+    // Conservatively avoid declaring any part of the surface opaque while
+    // the experiment is enabled. Other top views may extend below the frame's
+    // own paint bounds, and those bounds can change after layout.
+    return GetWidget()->GetWindowBoundsInScreen().height();
+  }
+#endif
   return 0;
 }
 
