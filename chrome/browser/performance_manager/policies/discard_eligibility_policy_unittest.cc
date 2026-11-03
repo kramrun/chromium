@@ -177,6 +177,18 @@ TEST_F(DiscardEligibilityPolicyTest, TestCannotDiscardVisiblePage) {
       {DiscardReason::EXTERNAL, DiscardReason::FROZEN_WITH_GROWING_MEMORY});
 }
 
+TEST_F(DiscardEligibilityPolicyTest, TestCannotDiscardPictureInPicturePage) {
+  // Picture-in-picture must stay protected even when the tab is silent.
+  page_node()->SetHasPictureInPicture(true);
+  ExpectCanDiscardProtected(page_node(),
+                            {DiscardReason::URGENT, DiscardReason::PROACTIVE,
+                             DiscardReason::SUGGESTED},
+                            CannotDiscardReason::kPictureInPicture);
+  ExpectCanDiscardEligible(
+      page_node(),
+      {DiscardReason::EXTERNAL, DiscardReason::FROZEN_WITH_GROWING_MEMORY});
+}
+
 TEST_F(DiscardEligibilityPolicyTest, TestCannotDiscardAudiblePage) {
   page_node()->SetIsAudible(true);
   // Ensure that the discard is being blocked because audio is playing, not

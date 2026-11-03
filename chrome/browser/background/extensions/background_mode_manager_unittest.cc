@@ -40,6 +40,7 @@
 #include "components/keep_alive_registry/scoped_keep_alive.h"
 #include "components/policy/core/common/mock_configuration_policy_provider.h"
 #include "components/policy/core/common/policy_service_impl.h"
+#include "components/prefs/testing_pref_service.h"
 #include "components/sync_preferences/pref_service_syncable.h"
 #include "content/public/test/browser_task_environment.h"
 #include "extensions/browser/extension_prefs.h"
@@ -299,6 +300,19 @@ class BackgroundModeManagerTest : public testing::Test {
   raw_ptr<TestingProfile> profile_;
 };
 
+#if BUILDFLAG(IS_LINUX)
+TEST(BackgroundModeManagerPrefsTest, BackgroundModeIsOptInOnLinux) {
+  TestingPrefServiceSimple pref_service;
+  BackgroundModeManager::RegisterPrefs(pref_service.registry());
+
+  EXPECT_FALSE(pref_service.GetBoolean(prefs::kBackgroundModeEnabled));
+  pref_service.SetBoolean(prefs::kBackgroundModeEnabled, true);
+  EXPECT_TRUE(pref_service.GetBoolean(prefs::kBackgroundModeEnabled));
+  pref_service.ClearPref(prefs::kBackgroundModeEnabled);
+  EXPECT_FALSE(pref_service.GetBoolean(prefs::kBackgroundModeEnabled));
+}
+#endif
+
 class BackgroundModeManagerWithExtensionsTest : public testing::Test {
  public:
   BackgroundModeManagerWithExtensionsTest() = default;
@@ -330,6 +344,10 @@ class BackgroundModeManagerWithExtensionsTest : public testing::Test {
         KeepAliveOrigin::BACKGROUND_MODE_MANAGER,
         KeepAliveRestartOption::DISABLED);
 
+    // These tests exercise background mode while explicitly enabled.
+    g_browser_process->local_state()->SetBoolean(prefs::kBackgroundModeEnabled,
+                                                 true);
+
     // Create our test BackgroundModeManager.
     manager_ = std::make_unique<TestBackgroundModeManager>(
         *command_line_, profile_manager_->profile_attributes_storage());
@@ -347,6 +365,7 @@ class BackgroundModeManagerWithExtensionsTest : public testing::Test {
     // TestBackgroundModeManager has dependencies on the infrastructure.
     // It should get cleared first.
     manager_.reset();
+    g_browser_process->local_state()->ClearPref(prefs::kBackgroundModeEnabled);
 
     // Now that the background manager is destroyed, the test KeepAlive can be
     // cleared without having |manager_| attempt to perform optimizations.

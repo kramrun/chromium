@@ -32,10 +32,10 @@ void RegisterLocalStatePrefs(PrefRegistrySimple* registry) {
       kMemorySaverModeTimeBeforeDiscardInMinutes,
       kDefaultMemorySaverModeTimeBeforeDiscardInMinutes);
   registry->RegisterIntegerPref(
-      kMemorySaverModeState, static_cast<int>(MemorySaverModeState::kDisabled));
+      kMemorySaverModeState, static_cast<int>(MemorySaverModeState::kEnabled));
   registry->RegisterIntegerPref(
       kMemorySaverModeAggressiveness,
-      static_cast<int>(MemorySaverModeAggressiveness::kMedium));
+      static_cast<int>(MemorySaverModeAggressiveness::kAggressive));
   registry->RegisterIntegerPref(
       kBatterySaverModeState,
       static_cast<int>(BatterySaverModeState::kEnabledBelowThreshold));

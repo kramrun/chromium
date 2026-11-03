@@ -22,6 +22,13 @@ class MemorySaverModePrefMigrationTest : public ::testing::Test {
   TestingPrefServiceSimple pref_service_;
 };
 
+TEST_F(MemorySaverModePrefMigrationTest, MemorySaverDefaultsEnabledAggressive) {
+  EXPECT_EQ(GetCurrentMemorySaverModeState(&pref_service_),
+            MemorySaverModeState::kEnabled);
+  EXPECT_EQ(GetCurrentMemorySaverMode(&pref_service_),
+            MemorySaverModeAggressiveness::kAggressive);
+}
+
 TEST_F(MemorySaverModePrefMigrationTest, NoChangeToUserSetNewPref) {
   // The old pref is set by the user, but so is the new pref so no migration
   // should happen.
@@ -63,7 +70,7 @@ TEST_F(MemorySaverModePrefMigrationTest,
   pref_service_.SetBoolean(kMemorySaverModeEnabled, true);
 
   EXPECT_EQ(pref_service_.GetInteger(kMemorySaverModeState),
-            static_cast<int>(MemorySaverModeState::kDisabled));
+            static_cast<int>(MemorySaverModeState::kEnabled));
   EXPECT_TRUE(
       pref_service_.FindPreference(kMemorySaverModeState)->IsDefaultValue());
 
@@ -87,7 +94,7 @@ TEST_F(MemorySaverModePrefMigrationTest,
   pref_service_.SetBoolean(kMemorySaverModeEnabled, false);
 
   EXPECT_EQ(pref_service_.GetInteger(kMemorySaverModeState),
-            static_cast<int>(MemorySaverModeState::kDisabled));
+            static_cast<int>(MemorySaverModeState::kEnabled));
   EXPECT_TRUE(
       pref_service_.FindPreference(kMemorySaverModeState)->IsDefaultValue());
 
