@@ -462,6 +462,17 @@ void BrowserActions::InitializeSidePanelActions() {
                   SidePanelEntryKey(SidePanelEntryId::kBookmarks), bwi)))
           .Build());
   root_action_item_->AddChild(
+      actions::ActionItem::Builder(CreateToggleSidePanelActionCallback(
+          SidePanelEntryKey(SidePanelEntryId::kOptimiumSoundCloud), bwi))
+          .SetActionId(kActionSidePanelShowOptimiumSoundCloud)
+          .SetText(u"SoundCloud")
+          .SetTooltipText(u"SoundCloud")
+          .SetImage(ui::ImageModel::FromVectorIcon(kQueueMusicIcon, ui::kColorIcon))
+          .SetProperty(actions::kActionItemPinnableKey,
+                       std::underlying_type_t<actions::ActionPinnableState>(
+                           actions::ActionPinnableState::kPinnable))
+          .Build());
+  root_action_item_->AddChild(
       SidePanelAction(SidePanelEntryId::kReadingList, IDS_READ_LATER_TITLE,
                       IDS_READ_LATER_TITLE,
                       features::IsRoundedIconsEnabled() ? kListAltIcon

@@ -82,6 +82,7 @@ class FindBarOwner;
 class FullscreenControlHost;
 class HistoryClustersSidePanelCoordinator;
 class HistorySidePanelCoordinator;
+class OptimiumSoundCloudSidePanelCoordinator;
 class ImmersiveModeController;
 class IncognitoClearBrowsingDataDialogCoordinator;
 class InitialWebUIManager;
@@ -395,6 +396,8 @@ class BrowserWindowFeatures {
   std::unique_ptr<HistoryClustersSidePanelCoordinator>
       history_clusters_side_panel_coordinator_;
   std::unique_ptr<HistorySidePanelCoordinator> history_side_panel_coordinator_;
+  std::unique_ptr<OptimiumSoundCloudSidePanelCoordinator>
+      optimium_soundcloud_side_panel_coordinator_;
   std::unique_ptr<IncognitoClearBrowsingDataDialogCoordinator>
       incognito_clear_browsing_data_dialog_coordinator_;
   std::unique_ptr<InitialWebUIManager> initial_web_ui_manager_;

@@ -5,6 +5,9 @@
 import '/strings.m.js';
 
 import {ColorChangeUpdater} from 'chrome://resources/cr_components/color_change_listener/colors_css_updater.js';
+// Optimium's native side panel uses a dedicated trusted-WebUI message handler.
+// eslint-disable-next-line no-restricted-imports
+import {sendWithPromise} from 'chrome://resources/js/cr.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {css, html, LitElement, nothing} from 'chrome://resources/lit/v3_0/lit.rollup.js';
 
@@ -28,9 +31,25 @@ const ICONS: {[key: string]: string} = {
   history: 'M3 11a9 9 0 1 1 3 8 M3 4v7h7 M12 7v5l3 2',
   arrow: 'M5 12h14 M13 6l6 6-6 6',
   cloud: 'M7 18a5 5 0 1 1 0-10 6 6 0 0 1 11 2 4 4 0 1 1 0 8z',
+  sun: 'M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8 M12 2v2 M12 20v2 M2 12h2 M20 12h2 M5 5l1.5 1.5 M17.5 17.5 19 19 M5 19l1.5-1.5 M17.5 6.5 19 5',
+  'cloud-sun': 'M8 2v2 M2 8h2 M3.8 3.8l1.4 1.4 M12.8 5.2l1.4-1.4 M7 12a4 4 0 1 1 5-5 M8 20a4 4 0 1 1 .5-8 5 5 0 0 1 9.5 1 3.5 3.5 0 1 1 0 7z',
+  rain: 'M7 15a4 4 0 1 1 .5-8 5 5 0 0 1 9.5 1 3.5 3.5 0 1 1 0 7 M8 18l-1 3 M13 18l-1 3 M18 18l-1 3',
+  snow: 'M12 2v20 M3.3 7l17.4 10 M3.3 17 20.7 7 M9 4l3 3 3-3 M9 20l3-3 3 3 M3.5 10l4-1-1-4 M17.5 19l-1-4 4-1 M3.5 14l4 1-1 4 M17.5 5l-1 4 4 1',
+  fog: 'M7 12a4 4 0 1 1 .5-8 5 5 0 0 1 9.5 1 3.5 3.5 0 1 1 0 7 M3 16h18 M5 20h14',
+  storm: 'M7 15a4 4 0 1 1 .5-8 5 5 0 0 1 9.5 1 3.5 3.5 0 1 1 0 7 M13 12l-4 6h5l-3 5',
   download: 'M12 3v12 M7 10l5 5 5-5 M4 16v5h16v-5',
 };
-type Hero = 'clock'|'google'|'weather'|'text'|'none';
+type Hero = 'clock'|'clock-weather'|'google'|'weather'|'text'|'none';
+type ClockStyle = 'display'|'soft'|'modern'|'condensed'|'mono'|'serif'|'light';
+const CLOCK_STYLES: Array<{id: ClockStyle; label: string}> = [
+  {id: 'display', label: 'Выразительный'},
+  {id: 'soft', label: 'Мягкий'},
+  {id: 'modern', label: 'Современный'},
+  {id: 'condensed', label: 'Узкий'},
+  {id: 'mono', label: 'Моноширинный'},
+  {id: 'serif', label: 'С засечками'},
+  {id: 'light', label: 'Тонкий'},
+];
 interface Shortcut {name: string; url: string; icon: string;}
 interface HomeConfig {
   version: 1;
@@ -39,9 +58,12 @@ interface HomeConfig {
   showHeading: boolean;
   customText: string;
   clock24: boolean;
+  clockStyle: ClockStyle;
+  clockWeatherStyle: ClockStyle;
   showDate: boolean;
   compact: boolean;
   radius: number;
+  searchLayoutVersion: 2;
   searchWidth: number;
   surfaceOpacity: number;
   searchPlaceholder: string;
@@ -56,8 +78,9 @@ interface WeatherData {city: string; label: string; temperature: number; code: n
 function defaults(): HomeConfig {
   return {
     version: 1, hero: 'clock', heading: 'Fuck proprietary!', showHeading: true,
-    customText: 'Optimium', clock24: true, showDate: true, compact: false,
-    radius: 24, searchWidth: 680, surfaceOpacity: 76,
+    customText: 'Optimium', clock24: true, clockStyle: 'light',
+    clockWeatherStyle: 'display', showDate: true, compact: false,
+    radius: 24, searchLayoutVersion: 2, searchWidth: 584, surfaceOpacity: 76,
     searchPlaceholder: 'Поиск или адрес сайта', showHistory: true,
     weatherEnabled: false, city: '', soundcloudEnabled: false,
     soundcloudUrl: '', shortcuts: [],
@@ -87,8 +110,14 @@ function normalizeConfig(value: unknown): HomeConfig {
   const v = value as Record<string, unknown>;
   if (v['version'] !== 1) { throw new Error('Поддерживается версия конфигурации 1.'); }
   const out = defaults();
-  const heroes: Hero[] = ['clock', 'google', 'weather', 'text', 'none'];
+  const heroes: Hero[] = ['clock', 'clock-weather', 'google', 'weather', 'text', 'none'];
   if (heroes.includes(v['hero'] as Hero)) { out.hero = v['hero'] as Hero; }
+  // Separate defaults preserve the original clock in existing v1 profiles.
+  for (const key of ['clockStyle', 'clockWeatherStyle'] as const) {
+    if (CLOCK_STYLES.some(style => style.id === v[key])) {
+      out[key] = v[key] as ClockStyle;
+    }
+  }
   for (const key of ['showHeading', 'clock24', 'showDate', 'compact', 'showHistory', 'weatherEnabled', 'soundcloudEnabled'] as const) {
     if (typeof v[key] === 'boolean') { out[key] = v[key]; }
   }
@@ -100,6 +129,10 @@ function normalizeConfig(value: unknown): HomeConfig {
   for (const [key, min, max] of [['radius', 0, 36], ['searchWidth', 360, 900], ['surfaceOpacity', 20, 100]] as const) {
     const n = v[key];
     if (typeof n === 'number' && Number.isFinite(n)) { out[key] = Math.min(max, Math.max(min, n)); }
+  }
+  // Migrate the old default once; preserve other widths and later selections.
+  if (v['searchLayoutVersion'] !== 2 && v['searchWidth'] === 680) {
+    out.searchWidth = 584;
   }
   if (Array.isArray(v['shortcuts'])) {
     out.shortcuts = v['shortcuts'].slice(0, 12).flatMap((item: unknown) => {
@@ -126,6 +159,7 @@ class OptimiumHome extends LitElement {
     config: {type: Object, state: true}, time: {type: Object, state: true}, query: {type: String, state: true},
     history: {type: Array, state: true}, historyOpen: {type: Boolean, state: true}, drawerOpen: {type: Boolean, state: true},
     status: {type: String, state: true}, weather: {type: Object, state: true}, weatherLoading: {type: Boolean, state: true},
+    soundcloudOpening: {type: Boolean, state: true},
   };
   private accessor config = readConfig();
   private accessor time = new Date();
@@ -136,6 +170,7 @@ class OptimiumHome extends LitElement {
   private accessor status = '';
   private accessor weather: WeatherData|null = null;
   private accessor weatherLoading = false;
+  private accessor soundcloudOpening = false;
   private timer = 0;
   private weatherRequest: AbortController|null = null;
   private readonly onStorage = (event: StorageEvent) => {
@@ -178,17 +213,36 @@ class OptimiumHome extends LitElement {
     main { width: 100%; max-width: 1024px; margin: 32px auto; flex: 1; }
     .heading { margin: 0 0 36px; text-align: center; font-size: 16px; font-weight: 550; color: var(--muted); overflow-wrap: anywhere; }
     .hero { min-height: 176px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; margin: 12px auto 28px; }
-    .clock { font-size: clamp(64px, 10vw, 104px); font-weight: 350; line-height: 1.1; letter-spacing: -.055em; font-variant-numeric: tabular-nums; }
+    .clock-face { max-width: 100%; }
+    [data-clock-style='display'] { --clock-font: 'Noto Sans', Roboto, sans-serif; --clock-weight: 900; --clock-tracking: -.02em; }
+    [data-clock-style='soft'] { --clock-font: Comfortaa, 'Noto Sans', sans-serif; --clock-weight: 700; --clock-tracking: -.045em; }
+    [data-clock-style='modern'] { --clock-font: 'Adwaita Sans', Roboto, sans-serif; --clock-weight: 600; --clock-tracking: -.055em; }
+    [data-clock-style='condensed'] { --clock-font: 'Noto Sans Condensed', 'Noto Sans', sans-serif; --clock-weight: 800; --clock-tracking: -.04em; --clock-stretch: condensed; }
+    [data-clock-style='mono'] { --clock-font: 'Adwaita Mono', 'Liberation Mono', monospace; --clock-weight: 600; --clock-tracking: -.07em; }
+    [data-clock-style='serif'] { --clock-font: 'Noto Serif', Georgia, serif; --clock-weight: 600; --clock-tracking: -.06em; }
+    [data-clock-style='light'] { --clock-font: Roboto, system-ui, sans-serif; --clock-weight: 350; --clock-tracking: -.055em; }
+    .clock { display: flex; align-items: baseline; justify-content: center; gap: .12em; font-family: var(--clock-font); font-size: clamp(64px, 10vw, 104px); font-weight: var(--clock-weight); font-stretch: var(--clock-stretch, normal); line-height: 1.1; letter-spacing: var(--clock-tracking); font-variant-numeric: tabular-nums; white-space: nowrap; }
+    .clock-period { font: 500 .2em/1.2 Roboto, system-ui, sans-serif; letter-spacing: 0; color: var(--muted); }
+    .clock-weather .clock { font-size: clamp(72px, 24vw, 160px); }
+    .hero-weather { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 8px 12px; margin-top: 12px; font-size: clamp(16px, 3vw, 22px); line-height: 1.4; }
+    .hero-weather svg { width: 28px; height: 28px; }
+    .hero-weather-temperature { font-variant-numeric: tabular-nums; }
+    .hero-weather-city { overflow-wrap: anywhere; max-width: 100%; }
+    .hero-weather-divider { width: 4px; height: 4px; border-radius: 50%; background: var(--muted); margin-inline: 6px; }
+    .hero-weather .quiet { font-size: 15px; }
     .date, .muted { color: var(--muted); }
     .date { margin-top: 14px; }
     .custom-text, .crossed-google { font-size: clamp(36px, 7vw, 72px); font-weight: 500; letter-spacing: -.035em; overflow-wrap: anywhere; max-width: 100%; }
     .crossed-google { text-decoration: line-through; text-decoration-thickness: 3px; text-decoration-color: var(--accent); }
-    .search-area { margin: 0 auto; max-width: var(--search-width, 680px); position: relative; z-index: 2; }
-    .search { display: flex; align-items: center; gap: 14px; border-radius: var(--radius, 24px); padding: 8px 10px 8px 20px; border: 1px solid var(--line); background: color-mix(in srgb, var(--surface) var(--opacity, 76%), transparent); }
-    .search:focus-within { border-color: var(--accent); }
-    .search input { background: transparent; color: var(--ink); border: 0; outline: 0; min-width: 0; width: 100%; height: 42px; }
+    .search-area { margin: 0 auto; max-width: var(--search-width, 584px); position: relative; z-index: 2; }
+    .search { display: flex; align-items: center; gap: 4px; min-height: 48px; border-radius: 999px; padding: 0 16px 0 4px; border: 1px solid var(--line); background: color-mix(in srgb, var(--surface) var(--opacity, 76%), transparent); }
+    .search:focus-within { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+    .search input { background: transparent; color: var(--ink); border: 0; outline: 0; min-width: 0; width: 100%; height: 46px; }
+    .search input:focus-visible { outline: none; }
     input::placeholder, textarea::placeholder { color: var(--muted); opacity: 1; }
-    .search button { border-radius: max(8px, calc(var(--radius) - 8px)); }
+    .search button { display: grid; place-items: center; flex: none; width: 40px; height: 40px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: var(--muted); }
+    .search button:hover { background: var(--surface); color: var(--ink); }
+    .search button:focus-visible { outline-offset: 0; }
     .history { position: absolute; top: calc(100% + 8px); left: 0; right: 0; border-radius: 16px; padding: 8px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 12px 30px #0002; }
     .history p { margin: 6px 12px; font-size: 12px; color: var(--muted); }
     .history button { display: flex; align-items: center; gap: 12px; border: 0; background: transparent; text-align: start; width: 100%; overflow-wrap: anywhere; }
@@ -213,6 +267,7 @@ class OptimiumHome extends LitElement {
     .compact .hero { min-height: 128px; margin-bottom: 20px; }
     .compact .heading { margin-bottom: 16px; }
     .compact .clock { font-size: 64px; }
+    .compact .clock-weather .clock { font-size: clamp(64px, 12vw, 104px); }
     dialog { margin: 0 0 0 auto; position: fixed; height: 100dvh; max-height: 100dvh; width: min(480px, 100%); max-width: 100%; border: 0; border-left: 1px solid var(--line); padding: 0; color: var(--ink); background: var(--page); }
     dialog::backdrop { background: #0005; }
     .drawer-header { position: sticky; top: 0; z-index: 1; padding: 20px 24px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); background: var(--page); }
@@ -220,8 +275,16 @@ class OptimiumHome extends LitElement {
     .drawer-body { padding: 24px; }
     .drawer-body h2 { font-size: 15px; margin: 28px 0 16px; }
     .drawer-body h2:first-child { margin-top: 0; }
+    #weather-settings { scroll-margin-top: 104px; }
     .field { display: flex; flex-direction: column; gap: 8px; margin: 16px 0; }
     .field span { font-size: 13px; color: var(--muted); }
+    .clock-styles { border: 0; padding: 0; margin: 20px 0; }
+    .clock-styles legend { font-size: 13px; color: var(--muted); margin-bottom: 12px; }
+    .clock-style-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+    .clock-style { min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 8px; }
+    .clock-style[aria-pressed='true'] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+    .clock-style-preview { font-family: var(--clock-font); font-size: 30px; font-weight: var(--clock-weight); font-stretch: var(--clock-stretch, normal); line-height: 1.3; letter-spacing: var(--clock-tracking); font-variant-numeric: tabular-nums; }
+    .clock-style-label { font-size: 12px; }
     .field input:not([type=range]), .field select, textarea { width: 100%; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); color: var(--ink); }
     .check { display: flex; gap: 12px; align-items: center; margin: 16px 0; }
     input[type=checkbox], input[type=range] { accent-color: var(--accent); }
@@ -237,7 +300,6 @@ class OptimiumHome extends LitElement {
       .page { padding: 16px; } header { align-items: flex-start; }
       nav .label { display: none; } main { margin-top: 24px; }
       .hero { min-height: 140px; } .widget { padding: 18px; }
-      .search { gap: 10px; padding-left: 16px; }
       .heading { margin-bottom: 20px; }
     }
     @media (prefers-reduced-motion: no-preference) {
@@ -291,6 +353,11 @@ class OptimiumHome extends LitElement {
   private closeDrawer() {
     this.renderRoot.querySelector('dialog')?.close();
     this.drawerOpen = false;
+  }
+  private async openWeatherSettings() {
+    await this.openDrawer();
+    this.renderRoot.querySelector('#weather-settings')?.scrollIntoView({block: 'start'});
+    this.renderRoot.querySelector<HTMLInputElement>('#weather-city')?.focus({preventScroll: true});
   }
   private navigate(query: string) {
     const value = query.trim().slice(0, 2048);
@@ -395,6 +462,47 @@ class OptimiumHome extends LitElement {
     if (code <= 86) { return 'Снегопад'; }
     return 'Гроза';
   }
+  private weatherIcon(code: number): string {
+    if (code === 0) { return 'sun'; }
+    if (code <= 2) { return 'cloud-sun'; }
+    if (code === 3) { return 'cloud'; }
+    if (code <= 48) { return 'fog'; }
+    if (code >= 95) { return 'storm'; }
+    if ((code >= 71 && code <= 77) || code === 85 || code === 86) { return 'snow'; }
+    return 'rain';
+  }
+  private heroWeather() {
+    if (this.weatherLoading) {
+      return html`<div class="hero-weather muted" role="status">Загрузка погоды…</div>`;
+    }
+    if (!this.config.weatherEnabled || !this.config.city) {
+      return html`<div class="hero-weather"><button class="quiet icon-button" @click=${() => this.openWeatherSettings()}>${icon('cloud')}Добавить погоду</button></div>`;
+    }
+    if (!this.weather) {
+      return html`<div class="hero-weather"><button class="quiet icon-button" @click=${() => this.updateWeather(true)}>${icon('cloud')}Погода недоступна · повторить</button></div>`;
+    }
+    const weather = this.weather;
+    const description = this.weatherDescription(weather.code);
+    const temperature = `${Math.round(weather.temperature)}°C`;
+    return html`<div class="hero-weather" role="group" aria-label=${`${description}, ${temperature}, ${weather.label}`}>
+      ${icon(this.weatherIcon(weather.code))}<span class="hero-weather-temperature">${temperature}</span>
+      <span class="hero-weather-divider" aria-hidden="true"></span><span class="hero-weather-city">${weather.label}</span>
+    </div>`;
+  }
+  private clockContent(combined = false) {
+    const options: Intl.DateTimeFormatOptions = {
+      hour: '2-digit', minute: '2-digit', hour12: !this.config.clock24,
+    };
+    const parts = new Intl.DateTimeFormat(undefined, options).formatToParts(this.time);
+    const digits = parts.filter(part => part.type !== 'dayPeriod').map(part => part.value).join('').trim();
+    const period = parts.find(part => part.type === 'dayPeriod')?.value;
+    const style = combined ? this.config.clockWeatherStyle : this.config.clockStyle;
+    return html`<div class=${combined ? 'clock-face clock-weather' : 'clock-face'} data-clock-style=${style}>
+      <time class="clock" datetime=${this.time.toISOString()}><span>${digits}</span>${period ? html`<span class="clock-period">${period}</span>` : nothing}</time>
+      ${combined ? this.heroWeather() : nothing}
+      ${this.config.showDate ? html`<div class="date">${this.time.toLocaleDateString([], {weekday: 'long', day: 'numeric', month: 'long'})}</div>` : nothing}
+    </div>`;
+  }
   private weatherContent() {
     if (this.weatherLoading) { return html`<p class="muted">Загрузка погоды…</p>`; }
     if (!this.weather) {
@@ -404,7 +512,8 @@ class OptimiumHome extends LitElement {
   }
   private hero() {
     switch (this.config.hero) {
-      case 'clock': return html`<div class="clock">${this.time.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit', hour12: !this.config.clock24})}</div>${this.config.showDate ? html`<div class="date">${this.time.toLocaleDateString([], {weekday: 'long', day: 'numeric', month: 'long'})}</div>` : nothing}`;
+      case 'clock': return this.clockContent();
+      case 'clock-weather': return this.clockContent(true);
       case 'google': return html`<div class="crossed-google">Google</div>`;
       case 'text': return html`<div class="custom-text">${this.config.customText}</div>`;
       case 'weather': return this.weatherContent();
@@ -415,6 +524,20 @@ class OptimiumHome extends LitElement {
     const url = new URL('https://w.soundcloud.com/player/');
     url.search = new URLSearchParams({url: this.config.soundcloudUrl, auto_play: 'false', hide_related: 'true', show_comments: 'false', show_artwork: 'false', show_user: 'true', show_reposts: 'false', show_teaser: 'false', visual: 'false', color: '#ac9dcf'}).toString();
     return url.href;
+  }
+  private async openSoundcloudPanel() {
+    if (this.soundcloudOpening) { return; }
+    this.soundcloudOpening = true;
+    try {
+      const opened = await sendWithPromise<boolean>('openOptimiumSoundCloud');
+      if (opened && this.drawerOpen) { this.closeDrawer(); }
+      if (!opened) { this.status = 'Не удалось открыть SoundCloud. Попробуй ещё раз.'; }
+    } catch (error) {
+      this.status = typeof error === 'string' ? error.slice(0, 180) :
+          'Не удалось открыть SoundCloud. Попробуй ещё раз.';
+    } finally {
+      this.soundcloudOpening = false;
+    }
   }
   private addShortcut(event: SubmitEvent) {
     event.preventDefault();
@@ -462,6 +585,18 @@ class OptimiumHome extends LitElement {
   private range(label: string, key: 'radius'|'searchWidth'|'surfaceOpacity', min: number, max: number, unit: string) {
     return html`<label class="field"><span>${label} · ${this.config[key]}${unit}</span><input type="range" min=${min} max=${max} .value=${String(this.config[key])} @input=${(e: Event) => this.save({[key]: Number((e.target as HTMLInputElement).value)})}></label>`;
   }
+  private clockStyles() {
+    const key = this.config.hero === 'clock-weather' ? 'clockWeatherStyle' : 'clockStyle';
+    return html`<fieldset class="clock-styles"><legend>Стиль цифр</legend>
+      <div class="clock-style-options">${CLOCK_STYLES.map(style => html`
+        <button type="button" class="clock-style" data-clock-style=${style.id}
+            aria-pressed=${this.config[key] === style.id}
+            @click=${() => this.save({[key]: style.id})}>
+          <span class="clock-style-preview" aria-hidden="true">22:47</span>
+          <span class="clock-style-label">${style.label}</span>
+        </button>`)}</div>
+    </fieldset>`;
+  }
   private drawer() {
     if (!this.drawerOpen) { return nothing; }
     return html`<dialog @close=${() => { this.drawerOpen = false; }} @click=${(e: MouseEvent) => { if (e.target === e.currentTarget) { this.closeDrawer(); } }}>
@@ -469,13 +604,13 @@ class OptimiumHome extends LitElement {
       <div class="drawer-body">
         <h2>Оформление</h2><a class="button icon-button" href="chrome://settings/appearance">${icon('palette')}Темы Optimium</a>
         <p class="notice">Страница использует цвета темы браузера. Изменения ниже сохраняются сразу.</p>
-        <label class="field"><span>Главный виджет</span><select .value=${this.config.hero} @change=${(e: Event) => this.save({hero: (e.target as HTMLSelectElement).value as Hero})}><option value="clock">Часы</option><option value="google">Зачёркнутый Google</option><option value="weather">Погода</option><option value="text">Свой текст</option><option value="none">Без виджета</option></select></label>
+        <label class="field"><span>Главный виджет</span><select .value=${this.config.hero} @change=${(e: Event) => this.save({hero: (e.target as HTMLSelectElement).value as Hero})}><option value="clock">Часы</option><option value="clock-weather">Часы + погода</option><option value="google">Зачёркнутый Google</option><option value="weather">Погода</option><option value="text">Свой текст</option><option value="none">Без виджета</option></select></label>
         ${this.config.hero === 'text' ? html`<label class="field"><span>Текст виджета</span><input maxlength="120" .value=${this.config.customText} @change=${(e: Event) => this.setValue('customText', e)}></label>` : nothing}
-        ${this.config.hero === 'clock' ? html`${this.check('24-часовой формат', 'clock24')}${this.check('Показывать дату', 'showDate')}` : nothing}
+        ${this.config.hero === 'clock' || this.config.hero === 'clock-weather' ? html`${this.clockStyles()}${this.check('24-часовой формат', 'clock24')}${this.check('Показывать дату', 'showDate')}` : nothing}
         ${this.check('Показывать надпись сверху', 'showHeading')}
         ${this.config.showHeading ? html`<label class="field"><span>Надпись</span><input maxlength="160" .value=${this.config.heading} @change=${(e: Event) => this.setValue('heading', e)}></label>` : nothing}
         ${this.check('Компактное расположение', 'compact')}
-        ${this.range('Скругление', 'radius', 0, 36, ' px')}
+        ${this.range('Скругление панелей', 'radius', 0, 36, ' px')}
         ${this.range('Плотность фона панелей', 'surfaceOpacity', 20, 100, '%')}
         <h2>Поиск</h2>
         <label class="field"><span>Подсказка в строке</span><input maxlength="80" .value=${this.config.searchPlaceholder} @change=${(e: Event) => this.setValue('searchPlaceholder', e)}></label>
@@ -486,12 +621,15 @@ class OptimiumHome extends LitElement {
         <h2>Ярлыки</h2>
         ${this.config.shortcuts.map((s, index) => html`<div class="saved-shortcut">${icon(s.icon)}<span>${s.name}</span><button class="quiet" aria-label=${`Удалить ${s.name}`} @click=${() => this.save({shortcuts: this.config.shortcuts.filter((_, i) => i !== index)})}>${icon('close')}</button></div>`)}
         ${this.config.shortcuts.length < 12 ? html`<form @submit=${(e: SubmitEvent) => this.addShortcut(e)}><label class="field"><span>Название</span><input name="name" required maxlength="40" placeholder="Например, YouTube"></label><label class="field"><span>Адрес</span><input name="url" required maxlength="2048" placeholder="https://youtube.com"></label><label class="field"><span>Иконка</span><select name="icon"><option value="globe">Сайт</option><option value="video">Видео</option><option value="music">Музыка</option><option value="code">Код</option><option value="book">Чтение</option><option value="link">Ссылка</option></select></label><button type="submit" class="icon-button">${icon('plus')}Добавить ярлык</button></form>` : nothing}
-        <h2>Погода</h2>
-        <label class="field"><span>Город</span><input maxlength="100" .value=${this.config.city} @change=${(e: Event) => this.setValue('city', e)} placeholder="Например, Екатеринбург"></label>
+        <h2 id="weather-settings">Погода</h2>
+        <label class="field"><span>Город</span><input id="weather-city" maxlength="100" .value=${this.config.city} @change=${(e: Event) => this.setValue('city', e)} placeholder="Например, Екатеринбург"></label>
         ${this.check('Разрешить загрузку погоды Open-Meteo', 'weatherEnabled')}
         <p class="notice">В Open-Meteo отправляется название выбранного города. Геолокация устройства не запрашивается.</p>
         <button ?disabled=${!this.config.weatherEnabled || !this.config.city || this.weatherLoading} @click=${() => this.updateWeather(true)}>Обновить погоду</button>
         <h2>SoundCloud</h2>
+        <button class="icon-button" ?disabled=${this.soundcloudOpening} @click=${() => this.openSoundcloudPanel()}>${icon('music')}Открыть медиатеку</button>
+        <p class="notice">Аккаунт и сохранённая музыка — в боковой панели SoundCloud. Вход выполняется на самом SoundCloud.</p>
+        <details><summary>Плеер трека на новой вкладке</summary>
         <label class="field"><span>Ссылка на трек или плейлист SoundCloud</span><input type="url" maxlength="2048" .value=${this.config.soundcloudUrl} placeholder="https://soundcloud.com/…" @change=${(e: Event) => {
           const value = (e.target as HTMLInputElement).value.trim();
           if (value && !soundcloudUrl(value)) { this.status = 'Нужна HTTPS-ссылка soundcloud.com на трек или плейлист.'; return; }
@@ -499,6 +637,7 @@ class OptimiumHome extends LitElement {
         }}></label>
         ${this.check('Загружать плеер SoundCloud', 'soundcloudEnabled')}
         <p class="notice">Плеер обращается к SoundCloud, когда включён. Автозапуск выключен. Прозрачность применяется к панели; оформление самого плеера задаёт SoundCloud.</p>
+        </details>
         <details><summary>Перенос и сброс настроек</summary><p class="notice">Файл JSON описывает виджеты, ярлыки и расположение. Произвольный код не выполняется.</p><div class="row"><button class="icon-button" @click=${() => this.exportConfig()}>${icon('download')}Экспорт</button><button @click=${() => { this.save(defaults()); void this.updateWeather(); }}>Сбросить оформление</button></div><label class="field"><span>Импорт optimium-home.json</span><input type="file" accept=".json,application/json" @change=${(e: Event) => this.importConfig(e)}></label></details>
       </div>
     </dialog>`;
@@ -506,22 +645,23 @@ class OptimiumHome extends LitElement {
   override render() {
     const matches = this.history.filter(value => value.toLocaleLowerCase().includes(this.query.toLocaleLowerCase())).slice(0, 6);
     const style = `--radius:${this.config.radius}px;--search-width:${this.config.searchWidth}px;--opacity:${this.config.surfaceOpacity}%`;
+    const showWeatherWidget = this.config.weatherEnabled && this.config.hero !== 'weather' && this.config.hero !== 'clock-weather';
     return html`<div class=${this.config.compact ? 'page compact' : 'page'} style=${style} @click=${(e: MouseEvent) => {
       if (!(e.target as Element).closest('.search-area')) { this.historyOpen = false; }
     }}>
-      <header><span class="wordmark">Optimium</span><nav><a class="button quiet icon-button" href="chrome://settings/appearance" aria-label="Темы Optimium">${icon('palette')}<span class="label">Темы</span></a><button class="quiet icon-button" @click=${() => this.openDrawer()} aria-label="Настроить новую вкладку">${icon('settings')}<span class="label">Настроить</span></button></nav></header>
+      <header><span class="wordmark">Optimium</span><nav><button class="quiet icon-button" ?disabled=${this.soundcloudOpening} @click=${() => this.openSoundcloudPanel()} aria-label="Открыть медиатеку SoundCloud">${icon('music')}<span class="label">SoundCloud</span></button><a class="button quiet icon-button" href="chrome://settings/appearance" aria-label="Темы Optimium">${icon('palette')}<span class="label">Темы</span></a><button class="quiet icon-button" @click=${() => this.openDrawer()} aria-label="Настроить новую вкладку">${icon('settings')}<span class="label">Настроить</span></button></nav></header>
       <main>
         ${this.config.showHeading && this.config.heading ? html`<p class="heading">${this.config.heading}</p>` : nothing}
         ${this.config.hero !== 'none' ? html`<section class="hero" aria-label="Главный виджет">${this.hero()}</section>` : nothing}
         <div class="search-area">
           <form class="search" role="search" @submit=${(e: SubmitEvent) => { e.preventDefault(); this.navigate(this.query); }}>
-            ${icon('search')}<input aria-label="Поиск или адрес сайта" autocomplete="off" spellcheck="false" .value=${this.query} placeholder=${this.config.searchPlaceholder} @focus=${() => { this.historyOpen = true; }} @input=${(e: Event) => { this.query = (e.target as HTMLInputElement).value; this.historyOpen = true; }} @keydown=${(e: KeyboardEvent) => { if (e.key === 'Escape') { this.historyOpen = false; } }}><button type="submit" aria-label="Перейти">${icon('arrow')}</button>
+            <button type="submit" aria-label="Искать">${icon('search')}</button><input aria-label="Поиск или адрес сайта" enterkeyhint="search" autocomplete="off" spellcheck="false" .value=${this.query} placeholder=${this.config.searchPlaceholder} @focus=${() => { this.historyOpen = true; }} @input=${(e: Event) => { this.query = (e.target as HTMLInputElement).value; this.historyOpen = true; }} @keydown=${(e: KeyboardEvent) => { if (e.key === 'Escape') { this.historyOpen = false; } }}>
           </form>
           ${this.historyOpen && this.config.showHistory && matches.length ? html`<div class="history"><p>История поиска на этой странице</p>${matches.map(value => html`<button @click=${() => this.navigate(value)}>${icon('history')}<span>${value}</span></button>`)}</div>` : nothing}
         </div>
         <section class="shortcuts" aria-label="Ярлыки">${this.config.shortcuts.map(s => html`<a class="shortcut" href=${s.url}>${icon(s.icon)}<span>${s.name}</span></a>`)}<button class="shortcut" @click=${() => this.openDrawer()}>${icon('plus')}<span>Добавить</span></button></section>
-        ${(this.config.weatherEnabled && this.config.hero !== 'weather') || (this.config.soundcloudEnabled && this.config.soundcloudUrl) ? html`<section class="widgets">
-          ${this.config.weatherEnabled && this.config.hero !== 'weather' ? html`<article class="widget"><h2>${icon('cloud')}Погода</h2>${this.weatherContent()}</article>` : nothing}
+        ${showWeatherWidget || (this.config.soundcloudEnabled && this.config.soundcloudUrl) ? html`<section class="widgets">
+          ${showWeatherWidget ? html`<article class="widget"><h2>${icon('cloud')}Погода</h2>${this.weatherContent()}</article>` : nothing}
           ${this.config.soundcloudEnabled && this.config.soundcloudUrl ? html`<article class="widget"><h2>${icon('music')}SoundCloud</h2><iframe title="Плеер SoundCloud" src=${this.playerUrl()} loading="lazy" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe></article>` : nothing}
         </section>` : nothing}
       </main>

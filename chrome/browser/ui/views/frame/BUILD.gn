@@ -1195,12 +1195,14 @@ source_set("custom_corners_background_impl") {
   public_deps = [ ":custom_corners_background" ]
   deps = [
     ":browser_frame_view",
+    ":browser_native_widget",
     ":browser_widget",
     ":custom_corners",
     ":custom_floating_corner",
     ":optimium_appearance_prefs",
     ":safe_invoke",
     ":themed_background",
+    ":top_container_view",
     "//base",
     "//base:i18n",
     "//build:buildflag_header_h",
@@ -1208,6 +1210,7 @@ source_set("custom_corners_background_impl") {
     "//chrome/browser/ui/color:color_headers",
     "//chrome/browser/ui/color:mixers",
     "//chrome/browser/ui/views/frame:browser_view_header",
+    "//chrome/browser/ui/views/toolbar",
     "//skia",
     "//ui/base",
     "//ui/color:color_headers",

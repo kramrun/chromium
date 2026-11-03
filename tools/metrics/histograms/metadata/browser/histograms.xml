@@ -69,6 +69,7 @@ chromium-metrics-reviews@google.com.
   <variant name="Lens" summary="lens"/>
   <variant name="LensOverlayResults" summary="lens overlay results"/>
   <variant name="MerchantTrust" summary="merchant trust"/>
+  <variant name="OptimiumSoundCloud" summary="Optimium SoundCloud"/>
   <variant name="Performance" summary="performance"/>
   <variant name="ReadAnything" summary="read anything"/>
   <variant name="ReadingList" summary="reading list"/>

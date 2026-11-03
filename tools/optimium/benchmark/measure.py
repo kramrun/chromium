@@ -181,6 +181,23 @@ def collect(scopes, server):
     return item
 
 
+def verify_niri_isolation(scopes, app_id, workspace):
+    def ipc(name):
+        return json.loads(subprocess.check_output(['niri', 'msg', '-j', name], text=True))
+    roots = scopes.refresh()
+    windows = [w for w in ipc('windows') if w.get('pid') in roots]
+    spaces = {w['id']: w for w in ipc('workspaces')}
+    if len(windows) != 1:
+        raise RuntimeError('Expected one isolated browser window')
+    window = windows[0]
+    ws = spaces.get(window['workspace_id'], {})
+    if (window['app_id'] != app_id or ws.get('name') != workspace
+            or ws.get('is_active') or window['is_focused']
+            or window['layout']['window_size'] != [1280, 800]):
+        raise RuntimeError('Benchmark window isolation/geometry changed; do not compare this run')
+    return {'window': window, 'workspace': ws}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--browser', choices=['optimium', 'firefox'], required=True)
@@ -250,6 +267,12 @@ def main():
             result['profile_overrides'] = {}
             flags = ['--user-data-dir=' + str(profile), '--no-first-run',
                      '--no-default-browser-check', '--ozone-platform=wayland']
+        app_id = os.environ.get('OPTIMIUM_BENCHMARK_APP_ID')
+        workspace = os.environ.get('OPTIMIUM_BENCHMARK_WORKSPACE')
+        if app_id:
+            flags += (['--name', app_id] if args.browser == 'firefox'
+                      else ['--class=' + app_id])
+            result['mode'] += '; isolated inactive Niri workspace;1280x800 window'
         server = FixtureServer(args.tabs, server_log_path)
         urls = server.urls()
         result['urls'] = urls
@@ -289,6 +312,8 @@ def main():
             result['unexpected_roots'] = scopes.refresh()
             raise RuntimeError('Expected exactly one live browser root for this profile: ' + repr(result['unexpected_roots']))
         scopes.bind_roots = True
+        if workspace:
+            result['niri_isolation'] = verify_niri_isolation(scopes, app_id, workspace)
         ready = time.monotonic()
         result['all_tabs_ready_seconds_after_launch'] = round(ready-launched, 3)
         print(f'{args.browser}: {args.tabs}/{args.tabs} fixtures ready', flush=True)
@@ -298,6 +323,8 @@ def main():
                 if not scopes.refresh():
                     raise RuntimeError('Browser exited before the measurement completed')
                 time.sleep(min(.5, max(0, expected - (time.monotonic() - ready))))
+            if workspace:
+                verify_niri_isolation(scopes, app_id, workspace)
             retries = []
             for attempt in range(3):
                 item = collect(scopes, server)
@@ -333,6 +360,8 @@ def main():
         result['complete'] = False
         result['error'] = f'{type(error).__name__}: {error}'
     finally:
+        if runner:
+            result['runner_exit_code_before_cleanup'] = runner.poll()
         if server:
             result['final_fixture'] = server.snapshot()
         if runner:

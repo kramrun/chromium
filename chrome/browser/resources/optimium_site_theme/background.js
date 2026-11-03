@@ -6,10 +6,6 @@
 // neither browser history nor any other settings are exposed to content scripts.
 const THEME_PREF = 'optimium.appearance.theme';
 const ENABLED_PREF = 'optimium.appearance.website_theme_enabled';
-const MATCHES = [
-  'https://*.youtube.com/*', 'https://google.com/*', 'https://www.google.com/*',
-  'https://google.ru/*', 'https://www.google.ru/*',
-];
 
 function readPref(name) {
   return new Promise(resolve => chrome.settingsPrivate.getPref(name, pref => {
@@ -32,8 +28,12 @@ async function getTheme() {
 }
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
+  const supportedSite =
+      /^https:\/\/([a-z\d-]+\.)*(youtube\.com|google\.com|google\.ru)\//i.test(sender.url || '');
+  const soundcloudFrame = sender.frameId > 0 &&
+      /^https:\/\/w\.soundcloud\.com\/player\/(?:\?|$)/.test(sender.url || '');
   if (message?.type !== 'optimium-theme' || !sender.tab ||
-      !/^https:\/\/([a-z\d-]+\.)*(youtube\.com|google\.com|google\.ru)\//i.test(sender.url || '')) {
+      (!supportedSite && !soundcloudFrame)) {
     return false;
   }
   getTheme().then(respond);
@@ -45,7 +45,10 @@ chrome.settingsPrivate.onPrefsChanged.addListener(async prefs => {
     return;
   }
   const theme = await getTheme();
-  const tabs = await chrome.tabs.query({url: MATCHES});
+  // SoundCloud is a subframe of chrome://newtab, which cannot be selected by
+  // host-permission URL filters. Tab IDs require no extra permissions; only our
+  // own content scripts receive these sanitized presentation preferences.
+  const tabs = await chrome.tabs.query({});
   for (const tab of tabs) {
     chrome.tabs.sendMessage(tab.id, {type: 'optimium-theme', theme}).catch(() => {});
   }

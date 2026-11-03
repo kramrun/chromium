@@ -71,3 +71,24 @@ drawImage/getImageData verifies a known pixel and retains 8 RGBA image buffers
 The readiness/heartbeat payload must include that full decoded byte count. This
 avoids image.decode() waiting for a foreground rendering frame. Do not combine
 v1 and v2 measurements: restart all1-tab and10-tab repetitions with v2.
+
+Unattended Niri runs without touching the current desktop
+
+Wrap the complete series with run_isolated.py. Example from repository root:
+
+python3 tools/optimium/benchmark/run_isolated.py --record /tmp/optimium-isolation.json -- python3 tools/optimium/benchmark/run_pair.py --repeats 3
+
+The wrapper backs up and validates the current Niri configuration, temporarily
+adds one UUID-named workspace and one exact-app-id rule, and removes only its own
+block afterward, preserving unrelated concurrent edits. Browser windows open
+unfocused at1280x800 on that inactive workspace. Chromium uses --class and
+Firefox uses --name to identify only the test windows. No personal browser
+profile/window or global compositor opacity is changed. Niri IPC validates the
+app-id, owning browser PID, geometry and inactive workspace before measurements;
+a mismatch fails the run. Run the two browsers sequentially through one wrapper.
+
+This is explicitly an INACTIVE-WINDOW workload: all tabs may be hidden, so
+background scheduling follows each browser's ordinary defaults. Do not combine
+these results with earlier visible-window runs. No headless browser mode or
+software-rendering flag is used; rendering stays native Wayland/GPU. The wrapper
+requires a live Niri session and leaves a metadata JSON and private config backup.

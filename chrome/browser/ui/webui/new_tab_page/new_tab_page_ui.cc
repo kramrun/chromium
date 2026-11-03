@@ -13,6 +13,7 @@
 
 #include "base/command_line.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/notreached.h"
@@ -149,8 +150,12 @@
 #include "chrome/browser/new_tab_page/modules/v2/calendar/outlook_calendar_page_handler.h"
 #include "chrome/browser/new_tab_page/modules/v2/tab_groups/tab_groups_page_handler.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/tabs/public/tab_features.h"
 #include "chrome/browser/ui/views/side_panel/customize_chrome/customize_chrome_utils.h"
+#include "chrome/browser/ui/views/side_panel/optimium/soundcloud_side_panel_coordinator.h"
+#include "chrome/browser/ui/webui/webui_embedding_context.h"
+#include "content/public/browser/web_ui_message_handler.h"
 #include "chrome/browser/ui/webui/new_tab_page/ntp_promo/ntp_promo_handler.h"
 #endif  // !BUILDFLAG(IS_ANDROID)
 
@@ -182,6 +187,39 @@ NewTabPageUIConfig::CreateWebUIController(content::WebUI* web_ui,
 }
 
 namespace {
+
+#if !BUILDFLAG(IS_ANDROID)
+// Only the trusted new-tab WebUI receives this message. The remote music page
+// is an ordinary WebContents and has no access to this bridge.
+class OptimiumSoundCloudMessageHandler : public content::WebUIMessageHandler {
+ public:
+  void RegisterMessages() override {
+    web_ui()->RegisterMessageCallback(
+        "openOptimiumSoundCloud",
+        base::BindRepeating(&OptimiumSoundCloudMessageHandler::Open,
+                            base::Unretained(this)));
+  }
+
+ private:
+  void Open(const base::ListValue& args) {
+    if (args.size() != 1 || !args[0].is_string()) {
+      return;
+    }
+    AllowJavascript();
+    auto* browser = webui::GetBrowserWindowInterface(web_ui()->GetWebContents());
+    auto* coordinator =
+        browser ? OptimiumSoundCloudSidePanelCoordinator::From(browser)
+                : nullptr;
+    if (!coordinator || !coordinator->Show()) {
+      RejectJavascriptCallback(
+          args[0],
+          base::Value("Панель SoundCloud доступна в обычном окне Optimium."));
+      return;
+    }
+    ResolveJavascriptCallback(args[0], base::Value(true));
+  }
+};
+#endif
 
 constexpr char kPrevNavigationTimePrefName[] = "NewTabPage.PrevNavigationTime";
 // The value for the "udm" (Unified Drilldown Mode) query parameter.
@@ -1063,6 +1101,10 @@ NewTabPageUI::NewTabPageUI(content::WebUI* web_ui)
           ntp::MakeModuleIdDetails(NewTabPageUI::IsManagedProfile(profile_),
                                    profile_)) {
 
+#if !BUILDFLAG(IS_ANDROID)
+  web_ui->AddMessageHandler(
+      std::make_unique<OptimiumSoundCloudMessageHandler>());
+#endif
   instance_count_++;
   base::UmaHistogramCounts100("NewTabPage.Count", instance_count_);
   bool session_allows_drag_and_drop = false;

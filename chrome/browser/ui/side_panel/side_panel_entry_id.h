@@ -24,6 +24,7 @@
   V(kHistory, kActionSidePanelShowHistory, "History")                         \
   V(kReadAnything, kActionSidePanelShowReadAnything, "ReadAnything")          \
   V(kFeed, kActionSidePanelShowFeed, "Feed")                                  \
+  V(kOptimiumSoundCloud, kActionSidePanelShowOptimiumSoundCloud, "OptimiumSoundCloud") \
   V(kWebView, std::nullopt, "WebView")                                        \
   V(kContextualTasks, kActionSidePanelShowContextualTasks, "ContextualTasks") \
   /* Contextual Entries */                                                    \
