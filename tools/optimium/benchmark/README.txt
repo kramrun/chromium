@@ -63,3 +63,11 @@ executable name and unchanged PID start time. Its PSS must be included in every
 accepted sample. Missing roots, unexpected/shared scopes or new unread processes
 fail validation. Both owned scopes are stopped before profile cleanup. Older
 failed schema1 results that omitted the main process must not be compared.
+
+Fixture v2 forces the same image decoding in every background tab without
+changing either browser's throttling flags. After PNG load, synchronous canvas
+drawImage/getImageData verifies a known pixel and retains 8 RGBA image buffers
+(2,654,208 bytes per tab) in addition to the existing DOM, JS and image elements.
+The readiness/heartbeat payload must include that full decoded byte count. This
+avoids image.decode() waiting for a foreground rendering frame. Do not combine
+v1 and v2 measurements: restart all1-tab and10-tab repetitions with v2.

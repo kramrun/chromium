@@ -12,7 +12,7 @@ import zlib
 
 
 SPEC = {
-    'name': 'optimium-local-dom-js-images-v1',
+    'name': 'optimium-local-dom-js-images-v2',
     'origin_count': 1,
     'dom_articles_per_tab': 1000,
     'retained_typed_array_bytes_per_tab': 1048576,
@@ -20,6 +20,8 @@ SPEC = {
     'images_per_tab': 8,
     'image_width': 384,
     'image_height': 216,
+    'retained_decoded_rgba_bytes_per_tab': 8 * 384 * 216 * 4,
+    'decode_method': 'image load + synchronous canvas draw/readback; retained RGBA',
     'network': 'loopback only for workload; browser background services retain defaults',
 }
 
@@ -61,15 +63,46 @@ const images=Array.from({length:8},(_,i)=>{
   image.loading='eager';image.src=`/asset/${tab}/${i}.png`;
   document.querySelector('#images').append(image);return image;
 });
+window.fixtureRetained.decodedPixels=[];
+function loaded(image){
+  return new Promise((resolve,reject)=>{
+    if(image.complete){
+      image.naturalWidth===384?resolve():reject(new Error('Invalid PNG dimensions'));
+      return;
+    }
+    image.addEventListener('load',resolve,{once:true});
+    image.addEventListener('error',()=>reject(new Error('PNG load failed')),{once:true});
+  });
+}
+function decodeAllImages(){
+  // image.decode() may wait for a rendering frame in a hidden document. A
+  // synchronous canvas readback forces real decoding without activating tabs
+  // or changing either browser's background scheduling flags.
+  const canvas=document.createElement('canvas');canvas.width=384;canvas.height=216;
+  const context=canvas.getContext('2d',{willReadFrequently:true});
+  if(!context)throw new Error('No canvas context');
+  images.forEach((image,index)=>{
+    if(image.naturalWidth!==384||image.naturalHeight!==216)
+      throw new Error('Invalid PNG dimensions');
+    context.drawImage(image,0,0);
+    const pixels=context.getImageData(0,0,384,216);
+    const expected=[tab*19%256,index*23%256,(tab*7+index*13)%256,255];
+    if(expected.some((value,channel)=>pixels.data[channel]!==value))
+      throw new Error('Incorrect decoded PNG pixel');
+    window.fixtureRetained.decodedPixels.push(pixels);
+  });
+}
 async function report(kind){
   const payload={tab,articles:document.querySelectorAll('article').length,
     images:images.filter(image=>image.complete&&image.naturalWidth===384).length,
     jsBytes:retained.byteLength,objects:records.length,
+    decodedBytes:window.fixtureRetained.decodedPixels.reduce((n,p)=>n+p.data.byteLength,0),
     visible:document.visibilityState,userAgent:navigator.userAgent};
   await fetch(`/${kind}`,{method:'POST',headers:{'Content-Type':'application/json'},
     body:JSON.stringify(payload),cache:'no-store'});
 }
-Promise.all(images.map(image=>image.decode())).then(async()=>{
+Promise.all(images.map(loaded)).then(async()=>{
+  decodeAllImages();
   // Geometry access forces DOM/style/layout work even in background tabs.
   window.fixtureRetained.layoutHeight=document.body.getBoundingClientRect().height;
   document.querySelector('#status').textContent='Ready';
@@ -163,9 +196,9 @@ class FixtureServer:
                         if self.path == '/failure':
                             outer.failures.append(payload)
                         elif self.path in ('/ready', '/heartbeat'):
-                            expected = (1000, 8, 1048576, 8000)
+                            expected = (1000, 8, 1048576, 8000, 8 * 384 * 216 * 4)
                             actual = tuple(payload.get(k) for k in
-                                           ('articles', 'images', 'jsBytes', 'objects'))
+                                           ('articles', 'images', 'jsBytes', 'objects', 'decodedBytes'))
                             if actual != expected:
                                 outer.failures.append({'tab': tab, 'incorrect_workload': payload})
                             else:
