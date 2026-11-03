@@ -46,3 +46,61 @@
 .indented-rows .cr-row {
   padding-inline-start: 0;
 }
+
+#designThemeEditor {
+  border-top: var(--cr-separator-line);
+  padding: 18px 20px;
+}
+
+#designThemeEditor summary {
+  cursor: pointer;
+  font-weight: 500;
+}
+
+.design-theme-editor {
+  display: grid;
+  gap: 12px;
+  max-width: 520px;
+  padding-block: 12px;
+}
+
+.design-theme-editor p {
+  color: var(--cr-secondary-text-color);
+  margin: 0;
+}
+
+#designThemeName {
+  border: 1px solid var(--cr-separator-color);
+  border-radius: 10px;
+  padding: 8px;
+}
+
+.design-colors {
+  display: grid;
+  gap: 8px;
+}
+
+.design-color-row,
+.design-actions {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+}
+
+.design-color-row input {
+  block-size: 32px;
+  inline-size: 42px;
+}
+
+.design-preview {
+  border-radius: 12px;
+  inline-size: 100%;
+}
+
+.design-import {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}

@@ -139,6 +139,9 @@ export class SettingsAppearancePageElement extends
 
   static override get properties() {
     return {
+      designThemeColors_: {type: Object},
+      designThemeName_: {type: String},
+      designThemeStatus_: {type: String},
       pageVisibility_: {type: Object},
       defaultZoom_: {type: Number},
 
@@ -190,6 +193,106 @@ export class SettingsAppearancePageElement extends
       sidePanelAlignmentOptions_: {type: Array},
       configurableSidePanels_: {type: Array},
     };
+  }
+
+  // The editor creates a theme package; it does not apply it automatically.
+  protected accessor designThemeColors_: Record<string, string> = {
+    frame: '#2e273b',
+    toolbar: '#393344',
+    tab_text: '#f5f1fa',
+    toolbar_button_icon: '#e2dcec',
+    ntp_background: '#211e28',
+    ntp_text: '#f5f1fa',
+  };
+  protected accessor designThemeName_: string = 'Quiet Violet';
+  protected accessor designThemeStatus_: string = '';
+
+  protected get designThemeFields_(): Array<{key: string, label: string}> {
+    return [
+      {key: 'frame', label: this.i18n('designThemeFrame')},
+      {key: 'toolbar', label: this.i18n('designThemeToolbar')},
+      {key: 'tab_text', label: this.i18n('designThemeTabText')},
+      {key: 'toolbar_button_icon', label: this.i18n('designThemeIcons')},
+      {key: 'ntp_background', label: this.i18n('designThemeNtp')},
+      {key: 'ntp_text', label: this.i18n('designThemeNtpText')},
+    ];
+  }
+
+  protected onDesignThemeNameInput_(event: Event) {
+    this.designThemeName_ = (event.target as HTMLInputElement).value;
+  }
+
+  protected onDesignThemeColorInput_(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const key = input.dataset['key'];
+    if (key && Object.prototype.hasOwnProperty.call(this.designThemeColors_, key) &&
+        /^#[0-9a-f]{6}$/i.test(input.value)) {
+      this.designThemeColors_ = {...this.designThemeColors_, [key]: input.value};
+    }
+  }
+
+  protected onDesignThemeExport_() {
+    const name = this.designThemeName_.trim();
+    if (!name) {
+      this.designThemeStatus_ = this.i18n('designThemeNameRequired');
+      return;
+    }
+    const colors = Object.fromEntries(
+        Object.entries(this.designThemeColors_).map(([key, value]) => [
+          key, [1, 3, 5].map(
+                   index => parseInt(value.slice(index, index + 2), 16)),
+        ]));
+    const manifest = {manifest_version: 3, name, version: '1.0.0',
+      theme: {colors}};
+    const url = URL.createObjectURL(new Blob(
+        [JSON.stringify(manifest, null, 2) + '\n'],
+        {type: 'application/json'}));
+    const anchor = document.createElement('a');
+    anchor.href = url;
+    anchor.download = 'manifest.json';
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    this.designThemeStatus_ = this.i18n('designThemeDownloaded');
+  }
+
+  protected async onDesignThemeImport_(event: Event) {
+    const input = event.target as HTMLInputElement;
+    const file = input.files?.[0];
+    if (!file) {
+      return;
+    }
+    try {
+      if (file.size > 1024 * 1024) {
+        throw new Error('File too large');
+      }
+      const data = JSON.parse(await file.text());
+      if (!data || typeof data !== 'object' || !data.theme ||
+          !data.theme.colors || typeof data.theme.colors !== 'object') {
+        throw new Error('Invalid theme');
+      }
+      const colors = {...this.designThemeColors_};
+      for (const key of Object.keys(colors)) {
+        const color: unknown = data.theme.colors[key];
+        if (color === undefined) {
+          continue;
+        }
+        if (!Array.isArray(color) || color.length !== 3 ||
+            !color.every(n => Number.isInteger(n) && n >= 0 && n <= 255)) {
+          throw new Error('Invalid color');
+        }
+        colors[key] = '#' + color.map(
+            n => n.toString(16).padStart(2, '0')).join('');
+      }
+      this.designThemeColors_ = colors;
+      if (typeof data.name === 'string') {
+        this.designThemeName_ = data.name.slice(0, 45);
+      }
+      this.designThemeStatus_ = this.i18n('designThemeImported');
+    } catch {
+      this.designThemeStatus_ = this.i18n('designThemeInvalid');
+    } finally {
+      input.value = '';
+    }
   }
 
   /**

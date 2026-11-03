@@ -16,6 +16,60 @@
   <message name="IDS_SETTINGS_LINUX_TAB_TINT_DESCRIPTION" desc="Description of a link to the experimental Linux tab background tint setting.">
     Choose a tint on the experiments page. Changes apply after restarting the browser.
   </message>
+  <message name="IDS_SETTINGS_DESIGN_THEME_EDITOR_TITLE" desc="Theme editor text in appearance settings.">
+    Theme editor
+  </message>
+  <message name="IDS_SETTINGS_DESIGN_THEME_EDITOR_DESCRIPTION" desc="Theme editor text in appearance settings.">
+    Create a static color theme for the browser interface. This preview is approximate. The editor does not run scripts or change websites.
+  </message>
+  <message name="IDS_SETTINGS_DESIGN_THEME_NAME" desc="Theme editor text in appearance settings.">
+    Theme name
+  </message>
+  <message name="IDS_SETTINGS_DESIGN_THEME_FRAME" desc="Theme editor text in appearance settings.">
+    Tab strip
+  </message>
+  <message name="IDS_SETTINGS_DESIGN_THEME_TOOLBAR" desc="Theme editor text in appearance settings.">
+    Toolbar and active tab
+  </message>
+  <message name="IDS_SETTINGS_DESIGN_THEME_TAB_TEXT" desc="Theme editor text in appearance settings.">
+    Active tab text
+  </message>
+  <message name="IDS_SETTINGS_DESIGN_THEME_ICONS" desc="Theme editor text in appearance settings.">
+    Toolbar icons
+  </message>
+  <message name="IDS_SETTINGS_DESIGN_THEME_NTP" desc="Theme editor text in appearance settings.">
+    New tab background
+  </message>
+  <message name="IDS_SETTINGS_DESIGN_THEME_NTP_TEXT" desc="Theme editor text in appearance settings.">
+    New tab text
+  </message>
+  <message name="IDS_SETTINGS_DESIGN_THEME_PREVIEW" desc="Theme editor text in appearance settings.">
+    Approximate preview
+  </message>
+  <message name="IDS_SETTINGS_DESIGN_THEME_PREVIEW_TAB" desc="Theme editor text in appearance settings.">
+    New tab
+  </message>
+  <message name="IDS_SETTINGS_DESIGN_THEME_IMPORT" desc="Theme editor text in appearance settings.">
+    Import manifest.json
+  </message>
+  <message name="IDS_SETTINGS_DESIGN_THEME_EXPORT" desc="Theme editor text in appearance settings.">
+    Download manifest.json
+  </message>
+  <message name="IDS_SETTINGS_DESIGN_THEME_INSTALL_HELP" desc="Theme editor text in appearance settings.">
+    Put the downloaded manifest.json in an empty folder. On chrome://extensions, enable Developer mode and choose Load unpacked to install that folder. The result can differ from the preview.
+  </message>
+  <message name="IDS_SETTINGS_DESIGN_THEME_NAME_REQUIRED" desc="Theme editor text in appearance settings.">
+    Enter a name for the theme.
+  </message>
+  <message name="IDS_SETTINGS_DESIGN_THEME_DOWNLOADED" desc="Theme editor text in appearance settings.">
+    Theme file prepared. Install it using the instructions below.
+  </message>
+  <message name="IDS_SETTINGS_DESIGN_THEME_IMPORTED" desc="Theme editor text in appearance settings.">
+    Supported colors were imported. Other theme properties and images are not retained.
+  </message>
+  <message name="IDS_SETTINGS_DESIGN_THEME_INVALID" desc="Theme editor text in appearance settings.">
+    Could not read a supported theme file.
+  </message>
   <if expr="not is_android">
     <!-- Shared across multiple pages -->
     <message name="IDS_SETTINGS_CONTINUE" desc="Label for 'Continue' buttons.">

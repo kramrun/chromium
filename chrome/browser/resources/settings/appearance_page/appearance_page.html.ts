@@ -59,6 +59,55 @@ export function getHtml(this: SettingsAppearancePageElement) {
         @click="${this.onLinuxTabTintClick_}" external>
     </cr-link-row>
 </if>
+    <details id="designThemeEditor" ?hidden="${!this.pageVisibility_.setTheme}">
+      <summary>$i18n{designThemeEditorTitle}</summary>
+      <div class="design-theme-editor">
+        <p>$i18n{designThemeEditorDescription}</p>
+        <label for="designThemeName">$i18n{designThemeName}</label>
+        <input id="designThemeName" maxlength="45"
+            .value="${this.designThemeName_}"
+            @input="${this.onDesignThemeNameInput_}">
+        <div class="design-colors">
+          ${this.designThemeFields_.map(field => html`
+            <label class="design-color-row">
+              <span>${field.label}</span>
+              <input type="color" data-key="${field.key}"
+                  .value="${this.designThemeColors_[field.key]}"
+                  @input="${this.onDesignThemeColorInput_}">
+            </label>
+          `)}
+        </div>
+        <p>$i18n{designThemePreview}</p>
+        <svg class="design-preview" viewBox="0 0 400 180" role="img"
+            aria-label="$i18n{designThemePreview}">
+          <rect width="400" height="180" rx="12"
+              fill="${this.designThemeColors_['ntp_background']}"></rect>
+          <path d="M 0 12 Q 0 0 12 0 H 388 Q 400 0 400 12 V 32 H 0 Z"
+              fill="${this.designThemeColors_['frame']}"></path>
+          <path d="M 10 32 V 18 Q 10 10 18 10 H 120 Q 128 10 128 18 V 32 Z"
+              fill="${this.designThemeColors_['toolbar']}"></path>
+          <rect y="32" width="400" height="35"
+              fill="${this.designThemeColors_['toolbar']}"></rect>
+          <text x="20" y="25" font-size="10"
+              fill="${this.designThemeColors_['tab_text']}">$i18n{designThemePreviewTab}</text>
+          <text x="16" y="54" font-size="14"
+              fill="${this.designThemeColors_['toolbar_button_icon']}">‹　›　⟳</text>
+          <text x="200" y="126" text-anchor="middle" font-size="18"
+              fill="${this.designThemeColors_['ntp_text']}">$i18n{designThemePreviewTab}</text>
+        </svg>
+        <div class="design-actions">
+          <label class="design-import">$i18n{designThemeImport}
+            <input type="file" accept=".json,application/json"
+                @change="${this.onDesignThemeImport_}">
+          </label>
+          <cr-button @click="${this.onDesignThemeExport_}">
+            $i18n{designThemeExport}
+          </cr-button>
+        </div>
+        <p role="status">${this.designThemeStatus_}</p>
+        <p>$i18n{designThemeInstallHelp}</p>
+      </div>
+    </details>
     <div id="toolbarRow" class="settings-row">
       <cr-link-row id="customizeToolbar" label="$i18n{customizeToolbar}"
           @click="${this.onCustomizeToolbarClick_}" external>

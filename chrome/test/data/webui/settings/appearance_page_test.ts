@@ -419,6 +419,45 @@ suite('AppearancePage', function() {
         appearancePage.shadowRoot.querySelector('managed-dialog')!.hidden);
   });
 
+  test('themeEditorPreviewAndInvalidImport', async () => {
+    const root = appearancePage.shadowRoot!;
+    const editor = root.querySelector<HTMLDetailsElement>('#designThemeEditor')!;
+    assertFalse(editor.open);
+    editor.querySelector('summary')!.click();
+    assertTrue(editor.open);
+
+    const color = editor.querySelector<HTMLInputElement>(
+        'input[data-key="frame"]')!;
+    color.value = '#123456';
+    color.dispatchEvent(new Event('input', {bubbles: true}));
+    await microtasksFinished();
+    assertEquals('#123456',
+        editor.querySelector('svg path')!.getAttribute('fill'));
+
+    const file = new File(
+        ['{"theme":{"colors":{"frame":[999,0,0]}}}'], 'manifest.json',
+        {type: 'application/json'});
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    const input = editor.querySelector<HTMLInputElement>('input[type="file"]')!;
+    input.files = transfer.files;
+    const status = editor.querySelector<HTMLElement>('[role="status"]')!;
+    const changed = new Promise<void>(resolve => {
+      const observer = new MutationObserver(() => {
+        observer.disconnect();
+        resolve();
+      });
+      observer.observe(status, {characterData: true, childList: true, subtree: true});
+    });
+    input.dispatchEvent(new Event('change', {bubbles: true}));
+    await changed;
+    await microtasksFinished();
+    assertEquals('#123456',
+        editor.querySelector('svg path')!.getAttribute('fill'));
+    assertEquals(loadTimeData.getString('designThemeInvalid'),
+        editor.querySelector('[role="status"]')!.textContent!.trim());
+  });
+
   test('openCustomizeChrome', function() {
     const button =
         appearancePage.shadowRoot.querySelector<HTMLElement>('#openTheme');
