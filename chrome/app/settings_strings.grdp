@@ -4,6 +4,12 @@
   <message name="IDS_SETTINGS_OPENS_IN_NEW_TAB" desc="ARIA (accessibility) label describing a link which opens in a new tab.">
     Opens in new tab
   </message>
+  <message name="IDS_SETTINGS_LINUX_TAB_TINT" desc="Label for a link to the experimental Linux tab background tint setting.">
+    Tab background tint (experimental)
+  </message>
+  <message name="IDS_SETTINGS_LINUX_TAB_TINT_DESCRIPTION" desc="Description of a link to the experimental Linux tab background tint setting.">
+    Choose a tint on the experiments page. Changes apply after restarting the browser.
+  </message>
   <if expr="not is_android">
     <!-- Shared across multiple pages -->
     <message name="IDS_SETTINGS_CONTINUE" desc="Label for 'Continue' buttons.">

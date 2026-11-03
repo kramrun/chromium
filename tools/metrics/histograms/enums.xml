@@ -21390,6 +21390,7 @@ from previous Chrome versions.
   <int value="1903186050"
       label="ForceSupervisedUserReauthenticationForBlockedSites:disabled"/>
   <int value="1903206193" label="NewWindowAppMenu:disabled"/>
+  <int value="1903267480" label="linux-tab-background-tint"/>
   <int value="1903444879" label="VirtualKeyboardApi:disabled"/>
   <int value="1903793531" label="FasterSplitScreenSetup:enabled"/>
   <int value="1904716652"

@@ -48,6 +48,12 @@ export function getHtml(this: SettingsAppearancePageElement) {
       </div>
 </if>
     </div>
+<if expr="is_linux">
+    <cr-link-row id="linuxTabTint" class="hr"
+        label="$i18n{linuxTabTint}" sub-label="$i18n{linuxTabTintDescription}"
+        @click="${this.onLinuxTabTintClick_}" external>
+    </cr-link-row>
+</if>
     <div id="toolbarRow" class="settings-row">
       <cr-link-row id="customizeToolbar" label="$i18n{customizeToolbar}"
           @click="${this.onCustomizeToolbarClick_}" external>

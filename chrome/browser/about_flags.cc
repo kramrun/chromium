@@ -1202,6 +1202,14 @@ const char kArcEnableAttestationFlag[] = "arc-enable-attestation";
 #endif  // BUILDFLAG(IS_CHROMEOS)
 
 #if BUILDFLAG(IS_LINUX)
+const FeatureEntry::Choice kLinuxTabBackgroundTintChoices[] = {
+    {flags_ui::kGenericExperimentChoiceDefault, "", ""},
+    {"Purple", "linux-tab-background-tint", "purple"},
+    {"Blue", "linux-tab-background-tint", "blue"},
+    {"Turquoise", "linux-tab-background-tint", "turquoise"},
+    {"Pink", "linux-tab-background-tint", "pink"},
+};
+
 const FeatureEntry::Choice kLinuxUiAnimationSpeedChoices[] = {
     {flags_ui::kGenericExperimentChoiceDefault, "", ""},
     {"Instant supported animations", switches::kAnimationDurationScale, "0"},
@@ -14439,6 +14447,13 @@ const FeatureEntry kFeatureEntries[] = {
      "Adjusts the duration of supported Chromium interface animations. "
      "Restart Chromium to apply. Does not control web page animations.",
      kOsLinux, MULTI_VALUE_TYPE(kLinuxUiAnimationSpeedChoices)},
+#endif
+
+#if BUILDFLAG(IS_LINUX)
+    {"linux-tab-background-tint", "Active tab background tint",
+     "Adds a subtle tint behind the active horizontal tab on Linux. "
+     "Restart Chromium to apply.",
+     kOsLinux, MULTI_VALUE_TYPE(kLinuxTabBackgroundTintChoices)},
 #endif
 
     // Add new entries above this line.

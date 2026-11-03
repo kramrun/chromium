@@ -20,6 +20,9 @@ import type {BrowserProxy as CustomizeColorSchemeModeBrowserProxy} from 'chrome:
 import {HelpBubbleMixinLit} from 'chrome://resources/cr_components/help_bubble/help_bubble_mixin_lit.js';
 import {I18nMixinLit} from 'chrome://resources/cr_elements/i18n_mixin_lit.js';
 import {assert, assertNotReached} from 'chrome://resources/js/assert.js';
+// <if expr="is_linux">
+import {OpenWindowProxyImpl} from 'chrome://resources/js/open_window_proxy.js';
+// </if>
 import {CrLitElement} from 'chrome://resources/lit/v3_0/lit.rollup.js';
 import type {PropertyValues} from 'chrome://resources/lit/v3_0/lit.rollup.js';
 
@@ -463,6 +466,13 @@ export class SettingsAppearancePageElement extends
     }
     return homepageValue || this.i18n('customWebAddress');
   }
+
+  // <if expr="is_linux">
+  protected onLinuxTabTintClick_() {
+    OpenWindowProxyImpl.getInstance().openUrl(
+        'chrome://flags/#linux-tab-background-tint');
+  }
+  // </if>
 
   protected onCustomizeFontsClick_() {
     Router.getInstance().navigateTo(routes.FONTS);

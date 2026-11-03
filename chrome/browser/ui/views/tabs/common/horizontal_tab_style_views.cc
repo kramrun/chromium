@@ -6,12 +6,16 @@
 
 #include <algorithm>
 #include <cmath>
+#include <string>
 #include <utility>
 
+#include "base/command_line.h"
 #include "base/i18n/rtl.h"
 #include "base/memory/raw_ptr.h"
 #include "base/numerics/safe_conversions.h"
+#include "build/build_config.h"
 #include "cc/paint/paint_flags.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/color/chrome_color_id.h"
@@ -30,12 +34,14 @@
 #include "third_party/skia/include/core/SkPathBuilder.h"
 #include "third_party/skia/include/core/SkRRect.h"
 #include "ui/base/theme_provider.h"
+#include "ui/color/color_provider_key.h"
 #include "ui/gfx/animation/tween.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/favicon_size.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/skia_conversions.h"
 #include "ui/gfx/scoped_canvas.h"
+#include "ui/native_theme/native_theme.h"
 #include "ui/views/controls/separator.h"
 #include "ui/views/widget/widget.h"
 
@@ -794,6 +800,40 @@ void HorizontalTabStyleViews::PaintTabBackgroundFill(
                          delegate_->GetView()->GetLocalBounds(), scale),
                      flags);
   }
+
+#if BUILDFLAG(IS_LINUX)
+  // Experimental, opt-in tint of the background only. Child views such as the
+  // title and controls are painted separately after this view's background.
+  BrowserWindowInterface* tint_browser = delegate_->GetBrowserWindowInterface();
+  const ui::NativeTheme* native_theme = delegate_->GetView()->GetNativeTheme();
+  if (selection_state == TabStyle::TabSelectionState::kActive &&
+      !fill_id.has_value() && tint_browser && tint_browser->GetProfile() &&
+      !tint_browser->GetProfile()->IsOffTheRecord() && native_theme &&
+      native_theme->forced_colors() ==
+          ui::ColorProviderKey::ForcedColors::kNone) {
+    const std::string tint = base::CommandLine::ForCurrentProcess()
+                                 ->GetSwitchValueASCII(
+                                     "linux-tab-background-tint");
+    SkColor tint_color = SK_ColorTRANSPARENT;
+    if (tint == "blue") {
+      tint_color = SkColorSetARGB(16, 0, 110, 255);
+    } else if (tint == "purple") {
+      tint_color = SkColorSetARGB(16, 145, 60, 235);
+    } else if (tint == "turquoise") {
+      tint_color = SkColorSetARGB(16, 0, 190, 185);
+    } else if (tint == "pink") {
+      tint_color = SkColorSetARGB(16, 235, 65, 150);
+    }
+    if (tint_color != SK_ColorTRANSPARENT) {
+      cc::PaintFlags tint_flags;
+      tint_flags.setAntiAlias(true);
+      tint_flags.setColor(tint_color);
+      canvas->DrawRect(gfx::ScaleToEnclosingRect(
+                           delegate_->GetView()->GetLocalBounds(), scale),
+                       tint_flags);
+    }
+  }
+#endif
 
   if (fill_id.has_value()) {
     gfx::ScopedCanvas scale_scoper(canvas);

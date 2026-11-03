@@ -567,6 +567,8 @@ void AddAppearanceStrings(content::WebUIDataSource* html_source,
                           Profile* profile) {
   static constexpr webui::LocalizedString kLocalizedStrings[] = {
       {"appearancePageTitle", IDS_SETTINGS_APPEARANCE},
+      {"linuxTabTint", IDS_SETTINGS_LINUX_TAB_TINT},
+      {"linuxTabTintDescription", IDS_SETTINGS_LINUX_TAB_TINT_DESCRIPTION},
       {"ctrlTabMru", IDS_SETTINGS_CTRL_TAB_MRU},
       {"glassEffect", IDS_SETTINGS_TAB_STYLING},
       {"glassEffectClassic", IDS_SETTINGS_TAB_STYLING_CLASSIC},

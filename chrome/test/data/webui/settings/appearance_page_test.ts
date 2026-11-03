@@ -7,6 +7,10 @@ import type {CustomizeColorSchemeModeClientRemote, SettingsAppearancePageElement
 import {AppearanceBrowserProxyImpl, ColorSchemeMode, customizeColorSchemeModeBrowserProxyFactory, CustomizeColorSchemeModeHandlerRemote, loadTimeData, MetricsBrowserProxyImpl, PrefsBrowserProxy, PrefService, SystemTheme} from 'chrome://settings/settings.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {TestMock} from 'chrome://webui-test/test_mock.js';
+// <if expr="is_linux">
+import {OpenWindowProxyImpl} from 'chrome://resources/js/open_window_proxy.js';
+import {TestOpenWindowProxy} from 'chrome://webui-test/test_open_window_proxy.js';
+// </if>
 import {isVisible, microtasksFinished} from 'chrome://webui-test/test_util.js';
 
 import {TestAppearanceBrowserProxy} from './test_appearance_browser_proxy.js';
@@ -222,6 +226,18 @@ suite('AppearancePage', function() {
 
   // <if expr="is_linux">
   const SYSTEM_THEME_PREF = 'extensions.theme.system_theme';
+
+  test('openLinuxTabTintExperiment', async () => {
+    const proxy = new TestOpenWindowProxy();
+    OpenWindowProxyImpl.setInstance(proxy);
+    const link = appearancePage.shadowRoot.querySelector<HTMLElement>(
+        '#linuxTabTint');
+    assertTrue(!!link);
+    link!.click();
+    assertEquals(
+        'chrome://flags/#linux-tab-background-tint',
+        await proxy.whenCalled('openUrl'));
+  });
 
   test('useDefaultThemeLinux', async () => {
     await colorSchemeHandler.whenCalled('initializeColorSchemeMode');
