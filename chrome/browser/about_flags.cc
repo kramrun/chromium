@@ -14434,11 +14434,6 @@ const FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kPreserveDownloadLastModifiedDescription, kOsAll,
      FEATURE_VALUE_TYPE(download::features::kPreserveDownloadLastModified)},
 
-    // Add new entries above this line.
-    // NOTE: Adding a new flag requires adding a corresponding entry to enum
-    // "LoginCustomFlags" in tools/metrics/histograms/enums.xml. See "Flag
-    // Histograms" in tools/metrics/histograms/README.md (run the
-    // AboutFlagsHistogramTest unit test to verify this process).
 #if BUILDFLAG(IS_LINUX)
     {"linux-ui-animation-speed", "Linux UI animation duration",
      "Adjusts the duration of supported Chromium interface animations. "
@@ -14446,6 +14441,11 @@ const FeatureEntry kFeatureEntries[] = {
      kOsLinux, MULTI_VALUE_TYPE(kLinuxUiAnimationSpeedChoices)},
 #endif
 
+    // Add new entries above this line.
+    // NOTE: Adding a new flag requires adding a corresponding entry to enum
+    // "LoginCustomFlags" in tools/metrics/histograms/enums.xml. See "Flag
+    // Histograms" in tools/metrics/histograms/README.md (run the
+    // AboutFlagsHistogramTest unit test to verify this process).
 };
 
 class FlagsStateSingleton : public flags_ui::FlagsState::Delegate {
