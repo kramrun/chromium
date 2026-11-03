@@ -1204,7 +1204,7 @@ const char kArcEnableAttestationFlag[] = "arc-enable-attestation";
 #if BUILDFLAG(IS_LINUX)
 const FeatureEntry::Choice kLinuxUiAnimationSpeedChoices[] = {
     {flags_ui::kGenericExperimentChoiceDefault, "", ""},
-    {"No animation", switches::kAnimationDurationScale, "0"},
+    {"Instant supported animations", switches::kAnimationDurationScale, "0"},
     {"Fast (0.5x duration)", switches::kAnimationDurationScale, "0.5"},
     {"Slow (1.5x duration)", switches::kAnimationDurationScale, "1.5"},
     {"Very slow (2x duration)", switches::kAnimationDurationScale, "2"},
