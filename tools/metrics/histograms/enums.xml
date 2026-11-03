@@ -16767,6 +16767,7 @@ from previous Chrome versions.
   <int value="533064367" label="WebRtcHideLocalIpsWithMdns:disabled"/>
   <int value="533115840"
       label="HoldingSpaceInProgressDownloadsIntegration:enabled"/>
+  <int value="533212100" label="linux-tab-background-animation"/>
   <int value="533592681" label="OmniboxFuseboxUserEdGuidedTour:disabled"/>
   <int value="533814676" label="CCTResizableForFirstParties:enabled"/>
   <int value="534306691" label="TranslateStreamingBySentence:disabled"/>

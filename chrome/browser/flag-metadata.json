@@ -6819,6 +6819,11 @@
     "expiry_milestone": 160
   },
   {
+    "name": "linux-tab-background-animation",
+    "owners": [ "//chrome/browser/OWNERS" ],
+    "expiry_milestone": 170
+  },
+  {
     "name": "linux-tab-background-tint",
     "owners": [ "//chrome/browser/OWNERS" ],
     "expiry_milestone": 170

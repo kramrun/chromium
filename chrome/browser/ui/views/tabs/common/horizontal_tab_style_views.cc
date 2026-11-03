@@ -6,13 +6,17 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <string>
 #include <utility>
 
 #include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/i18n/rtl.h"
 #include "base/memory/raw_ptr.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/time/time.h"
+#include "base/timer/timer.h"
 #include "build/build_config.h"
 #include "cc/paint/paint_flags.h"
 #include "chrome/browser/profiles/profile.h"
@@ -826,8 +830,48 @@ void HorizontalTabStyleViews::PaintTabBackgroundFill(
       tint_color = SkColorSetARGB(16, 235, 65, 150);
     }
     if (tint_color != SK_ColorTRANSPARENT) {
-      // Reuse the tab hover animation; do not start a continuous animation.
-      // Keep the tint static when the system requests reduced motion.
+      // A single delayed repaint is scheduled from paint, rather than a
+      // permanent timer. No more repaints are requested once the view stops
+      // being painted, or the window is hidden or loses focus.
+      views::View* view = delegate_->GetView();
+      views::Widget* widget = view->GetWidget();
+      const bool animate =
+          base::CommandLine::ForCurrentProcess()->HasSwitch(
+              "linux-tab-background-animation") &&
+          !gfx::Animation::PrefersReducedMotion() &&
+          gfx::Animation::ShouldRenderRichAnimation() && widget &&
+          widget->IsVisible() && widget->IsActive() && view->IsDrawn();
+      if (animate) {
+        constexpr double kCycleMilliseconds = 12000.0;
+        constexpr double kTwoPi = 6.283185307179586;
+        const double phase =
+            (1.0 - std::cos(kTwoPi *
+                            std::fmod(base::TimeTicks::Now()
+                                          .since_origin()
+                                          .InMilliseconds(),
+                                      kCycleMilliseconds) /
+                            kCycleMilliseconds)) /
+            2.0;
+        const SkColor second_color = SkColorSetRGB(115, 90, 235);
+        tint_color = SkColorSetARGB(
+            16,
+            static_cast<uint8_t>(std::lerp(SkColorGetR(tint_color),
+                                         SkColorGetR(second_color), phase)),
+            static_cast<uint8_t>(std::lerp(SkColorGetG(tint_color),
+                                         SkColorGetG(second_color), phase)),
+            static_cast<uint8_t>(std::lerp(SkColorGetB(tint_color),
+                                         SkColorGetB(second_color), phase)));
+        if (!tint_repaint_timer_) {
+          tint_repaint_timer_ = std::make_unique<base::OneShotTimer>();
+        }
+        if (!tint_repaint_timer_->IsRunning()) {
+          tint_repaint_timer_->Start(
+              FROM_HERE, base::Milliseconds(100),
+              base::BindOnce([](views::View* target) { target->SchedulePaint(); },
+                             base::Unretained(view)));
+        }
+      }
+      // Reuse the tab hover animation for a small additional brightness.
       if (!gfx::Animation::PrefersReducedMotion()) {
         const double hover = std::clamp(GetHoverAnimationValue(), 0.0, 1.0);
         tint_color =

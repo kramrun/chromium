@@ -19,6 +19,10 @@ class BrowserFrameView;
 class GlowHoverController;
 class SkPath;
 
+namespace base {
+class OneShotTimer;
+}
+
 class HorizontalTabStyleViews : public TabStyleViews {
  public:
   explicit HorizontalTabStyleViews(
@@ -127,6 +131,8 @@ class HorizontalTabStyleViews : public TabStyleViews {
                                       const TabPathFlags& flags) const;
 
   std::unique_ptr<TabStyleViewDelegate> delegate_;
+  // Lazily created only when the experimental tab animation is enabled.
+  mutable std::unique_ptr<base::OneShotTimer> tint_repaint_timer_;
 };
 
 #endif  // CHROME_BROWSER_UI_VIEWS_TABS_COMMON_HORIZONTAL_TAB_STYLE_VIEWS_H_

@@ -14456,6 +14456,13 @@ const FeatureEntry kFeatureEntries[] = {
      kOsLinux, MULTI_VALUE_TYPE(kLinuxTabBackgroundTintChoices)},
 #endif
 
+#if BUILDFLAG(IS_LINUX)
+    {"linux-tab-background-animation", "Animate active tab tint",
+     "Slowly changes the selected active tab tint in the active window. "
+     "Choose a tab tint first; restart Chromium to apply.",
+     kOsLinux, SINGLE_VALUE_TYPE("linux-tab-background-animation")},
+#endif
+
     // Add new entries above this line.
     // NOTE: Adding a new flag requires adding a corresponding entry to enum
     // "LoginCustomFlags" in tools/metrics/histograms/enums.xml. See "Flag
