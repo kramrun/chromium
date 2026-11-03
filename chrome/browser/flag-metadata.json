@@ -6819,6 +6819,11 @@
     "expiry_milestone": 160
   },
   {
+    "name": "linux-ui-animation-speed",
+    "owners": [ "//chrome/browser/OWNERS" ],
+    "expiry_milestone": 170
+  },
+  {
     "name": "load-all-tabs-at-startup",
     "owners": [
       "ckitagawa@chromium.org",
