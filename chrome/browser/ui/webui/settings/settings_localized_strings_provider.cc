@@ -567,6 +567,9 @@ void AddAppearanceStrings(content::WebUIDataSource* html_source,
                           Profile* profile) {
   static constexpr webui::LocalizedString kLocalizedStrings[] = {
       {"appearancePageTitle", IDS_SETTINGS_APPEARANCE},
+      {"linuxPanelTransparency", IDS_SETTINGS_LINUX_PANEL_TRANSPARENCY},
+      {"linuxPanelTransparencyDescription",
+       IDS_SETTINGS_LINUX_PANEL_TRANSPARENCY_DESCRIPTION},
       {"linuxAnimationSpeed", IDS_SETTINGS_LINUX_ANIMATION_SPEED},
       {"linuxAnimationSpeedDescription",
        IDS_SETTINGS_LINUX_ANIMATION_SPEED_DESCRIPTION},

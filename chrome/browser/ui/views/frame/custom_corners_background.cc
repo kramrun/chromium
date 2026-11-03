@@ -6,11 +6,14 @@
 
 #include <memory>
 #include <optional>
+#include <string>
 #include <tuple>
 #include <variant>
 
+#include "base/command_line.h"
 #include "base/i18n/rtl.h"
 #include "build/build_config.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/color/chrome_color_provider_utils.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/frame/browser_frame_view.h"
@@ -20,10 +23,13 @@
 #include "chrome/browser/ui/views/frame/custom_floating_corner.h"
 #include "chrome/browser/ui/views/frame/safe_invoke/safe_invoke.h"
 #include "chrome/browser/ui/views/frame/themed_background.h"
+#include "chrome/grit/theme_resources.h"
 #include "third_party/skia/include/core/SkPath.h"
 #include "third_party/skia/include/core/SkPathBuilder.h"
+#include "ui/base/theme_provider.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/color/color_id.h"
+#include "ui/color/color_provider_key.h"
 #include "ui/color/color_variant.h"
 #include "ui/compositor/layer.h"
 #include "ui/gfx/canvas.h"
@@ -33,10 +39,17 @@
 #include "ui/gfx/geometry/rounded_corners_f.h"
 #include "ui/gfx/geometry/skia_conversions.h"
 #include "ui/gfx/scoped_canvas.h"
+#include "ui/native_theme/native_theme.h"
 #include "ui/views/controls/separator.h"
 #include "ui/views/view.h"
 #include "ui/views/view_utils.h"
 #include "ui/views/widget/widget.h"
+
+#if BUILDFLAG(IS_LINUX)
+#include "chrome/browser/ui/views/frame/browser_native_widget.h"
+#include "chrome/browser/ui/views/frame/top_container_view.h"
+#include "chrome/browser/ui/views/toolbar/toolbar_view.h"
+#endif
 
 namespace {
 // Radius of the corner blur used for the glass frame.
@@ -339,16 +352,64 @@ void CustomCornersBackground::Paint(gfx::Canvas* canvas,
 
   gfx::Rect rect(view->GetLocalBounds());
 
+  ColorChoiceWithAlpha primary_color = primary_color_;
+#if BUILDFLAG(IS_LINUX)
+  // The tabbed top container draws a background behind the toolbar. Apply the
+  // opacity once there and omit the toolbar's duplicate fill. Children (such
+  // as text, buttons and icons) remain independently painted and opaque.
+  const auto* theme = view->GetNativeTheme();
+  const auto* theme_provider = view->GetThemeProvider();
+  const auto* profile = browser_view().GetProfile();
+  const auto* widget = browser_view().browser_widget();
+  const auto* toolbar = browser_view().toolbar();
+  const auto* top = toolbar ? views::AsViewClass<TopContainerView>(
+                                  toolbar->parent())
+                            : nullptr;
+  if (browser_view().GetIsNormalType() &&
+      !browser_view().GetEnterpriseIsolatedMode() && profile &&
+      !profile->IsOffTheRecord() && widget && widget->browser_native_widget() &&
+      widget->browser_native_widget()->UseCustomFrame() && theme &&
+      theme_provider &&
+      theme->forced_colors() == ui::ColorProviderKey::ForcedColors::kNone &&
+      !theme_provider->HasCustomImage(IDR_THEME_TOOLBAR) &&
+      !theme_provider->HasCustomImage(IDR_THEME_FRAME) &&
+      !theme_provider->HasCustomImage(IDR_THEME_FRAME_INACTIVE) &&
+      !theme_provider->HasCustomImage(IDR_THEME_FRAME_OVERLAY) &&
+      !theme_provider->HasCustomImage(IDR_THEME_FRAME_OVERLAY_INACTIVE) &&
+      top && toolbar && toolbar->parent() == top && top->background() &&
+      top->background()->IsA<CustomCornersBackground>() &&
+      top->background()->AsA<CustomCornersBackground>()->is_visible()) {
+    const std::string value = base::CommandLine::ForCurrentProcess()
+                                  ->GetSwitchValueASCII("linux-ui-transparency");
+    float opacity = 1.0f;
+    if (value == "85") {
+      opacity = 0.85f;
+    } else if (value == "70") {
+      opacity = 0.70f;
+    } else if (value == "50") {
+      opacity = 0.50f;
+    }
+    if (opacity < 1.0f) {
+      if (view == top) {
+        primary_color.opacity *= opacity;
+      } else if (view == toolbar) {
+        primary_color.opacity = 0.0f;
+      }
+    }
+  }
+#endif
+
   const VisualCorners corners = GetMirroredCorners();
   const Outline outline = GetMirroredOutline();
 
   // Function for maybe clipping a non-opaque corner with background's
   // background.
-  const auto maybe_clip = [this](gfx::Canvas* canvas, VisualCorner corner,
-                                 const gfx::Rect& bounds) {
+  const auto maybe_clip = [this, &primary_color](gfx::Canvas* canvas,
+                                                 VisualCorner corner,
+                                                 const gfx::Rect& bounds) {
     static constexpr gfx::Insets kCurveCutoutInsets(1);
     std::unique_ptr<gfx::ScopedCanvas> scoped;
-    if (!primary_color_.is_opaque()) {
+    if (!primary_color.is_opaque()) {
       scoped = std::make_unique<gfx::ScopedCanvas>(canvas);
       gfx::Rect cutout_bounds = bounds;
       cutout_bounds.Inset(-kCurveCutoutInsets);
@@ -403,7 +464,7 @@ void CustomCornersBackground::Paint(gfx::Canvas* canvas,
   // Draw solid rect/rrect background:
   CornerRadii radii;
   PaintPath(canvas, GetBackgroundPath(view_->GetLocalBounds(), &radii),
-            primary_color_, /*anti_alias=*/true);
+            primary_color, /*anti_alias=*/true);
 
   // Paint strokes around the outside. Corners get strokes if they are between
   // two sides with strokes and have a radius. Multiple paths may be drawn if

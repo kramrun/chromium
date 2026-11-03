@@ -1202,6 +1202,13 @@ const char kArcEnableAttestationFlag[] = "arc-enable-attestation";
 #endif  // BUILDFLAG(IS_CHROMEOS)
 
 #if BUILDFLAG(IS_LINUX)
+const FeatureEntry::Choice kLinuxUiTransparencyChoices[] = {
+    {flags_ui::kGenericExperimentChoiceDefault, "", ""},
+    {"Subtle (85% opacity)", "linux-ui-transparency", "85"},
+    {"Medium (70% opacity)", "linux-ui-transparency", "70"},
+    {"Strong (50% opacity)", "linux-ui-transparency", "50"},
+};
+
 const FeatureEntry::Choice kLinuxTabBackgroundTintChoices[] = {
     {flags_ui::kGenericExperimentChoiceDefault, "", ""},
     {"Purple", "linux-tab-background-tint", "purple"},
@@ -14461,6 +14468,13 @@ const FeatureEntry kFeatureEntries[] = {
      "Slowly changes the selected active tab tint in the active window. "
      "Choose a tab tint first; restart Chromium to apply.",
      kOsLinux, SINGLE_VALUE_TYPE("linux-tab-background-animation")},
+#endif
+
+#if BUILDFLAG(IS_LINUX)
+    {"linux-ui-transparency", "Experimental translucent browser panels",
+     "Adjust the opacity of supported browser panel backgrounds on Linux. "
+     "Restart Chromium to apply.",
+     kOsLinux, MULTI_VALUE_TYPE(kLinuxUiTransparencyChoices)},
 #endif
 
     // Add new entries above this line.

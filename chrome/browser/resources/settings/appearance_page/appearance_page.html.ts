@@ -49,6 +49,11 @@ export function getHtml(this: SettingsAppearancePageElement) {
 </if>
     </div>
 <if expr="is_linux">
+    <cr-link-row id="linuxPanelTransparency" class="hr"
+        label="$i18n{linuxPanelTransparency}"
+        sub-label="$i18n{linuxPanelTransparencyDescription}"
+        @click="${this.onLinuxPanelTransparencyClick_}" external>
+    </cr-link-row>
     <cr-link-row id="linuxAnimationSpeed" class="hr"
         label="$i18n{linuxAnimationSpeed}"
         sub-label="$i18n{linuxAnimationSpeedDescription}"

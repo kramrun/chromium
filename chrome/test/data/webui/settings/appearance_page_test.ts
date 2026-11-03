@@ -227,6 +227,18 @@ suite('AppearancePage', function() {
   // <if expr="is_linux">
   const SYSTEM_THEME_PREF = 'extensions.theme.system_theme';
 
+  test('openLinuxPanelTransparencyExperiment', async () => {
+    const proxy = new TestOpenWindowProxy();
+    OpenWindowProxyImpl.setInstance(proxy);
+    const link = appearancePage.shadowRoot.querySelector<HTMLElement>(
+        '#linuxPanelTransparency');
+    assertTrue(!!link);
+    link!.click();
+    assertEquals(
+        'chrome://flags/#linux-ui-transparency',
+        await proxy.whenCalled('openUrl'));
+  });
+
   test('openLinuxAnimationSpeedExperiment', async () => {
     const proxy = new TestOpenWindowProxy();
     OpenWindowProxyImpl.setInstance(proxy);

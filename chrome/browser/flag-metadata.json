@@ -6834,6 +6834,11 @@
     "expiry_milestone": 170
   },
   {
+    "name": "linux-ui-transparency",
+    "owners": [ "//chrome/browser/OWNERS" ],
+    "expiry_milestone": 170
+  },
+  {
     "name": "load-all-tabs-at-startup",
     "owners": [
       "ckitagawa@chromium.org",

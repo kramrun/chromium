@@ -5,11 +5,14 @@
 #include "chrome/browser/ui/views/frame/opaque_browser_frame_view.h"
 
 #include <algorithm>
+#include <string>
 #include <utility>
 
+#include "base/command_line.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/layout_constants.h"
 #include "chrome/browser/ui/views/frame/browser_native_widget.h"
@@ -37,6 +40,7 @@
 #include "ui/base/theme_provider.h"
 #include "ui/base/ui_base_features.h"
 #include "ui/color/color_provider.h"
+#include "ui/color/color_provider_key.h"
 #include "ui/compositor/layer.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/font_list.h"
@@ -46,6 +50,7 @@
 #include "ui/gfx/image/image_skia.h"
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/scoped_canvas.h"
+#include "ui/native_theme/native_theme.h"
 #include "ui/views/controls/button/image_button.h"
 #include "ui/views/controls/label.h"
 #include "ui/views/metadata/view_factory.h"
@@ -628,6 +633,43 @@ int OpaqueBrowserFrameView::WebAppButtonHeight() const {
 ///////////////////////////////////////////////////////////////////////////////
 // OpaqueBrowserFrameView, protected:
 
+#if BUILDFLAG(IS_LINUX)
+bool OpaqueBrowserFrameView::GetLinuxFrameTranslucencyRequested() const {
+  const auto* profile = GetBrowserView()->GetProfile();
+  if (!GetBrowserView()->GetIsNormalType() ||
+      GetBrowserView()->GetEnterpriseIsolatedMode() || !profile ||
+      profile->IsOffTheRecord()) {
+    return false;
+  }
+  const auto value = base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+      "linux-ui-transparency");
+  return value == "85" || value == "70" || value == "50";
+}
+
+int OpaqueBrowserFrameView::GetLinuxFrameBackgroundOpacity() const {
+  if (!GetLinuxFrameTranslucencyRequested() || !UseCustomFrame()) {
+    return 255;
+  }
+  const auto* theme = GetNativeTheme();
+  if (!theme || theme->forced_colors() !=
+                    ui::ColorProviderKey::ForcedColors::kNone ||
+      !GetThemeProvider() ||
+      GetThemeProvider()->HasCustomImage(IDR_THEME_TOOLBAR) ||
+      !GetFrameImage().isNull() || !GetFrameOverlayImage().isNull()) {
+    return 255;
+  }
+  const auto value = base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
+      "linux-ui-transparency");
+  if (value == "85") {
+    return 217;
+  }
+  if (value == "70") {
+    return 179;
+  }
+  return 128;  // The only remaining accepted value is 50.
+}
+#endif
+
 // views::View:
 void OpaqueBrowserFrameView::OnPaint(gfx::Canvas* canvas) {
   TRACE_EVENT0("views.frame", "OpaqueBrowserFrameView::OnPaint");
@@ -670,10 +712,25 @@ void OpaqueBrowserFrameView::OnPaint(gfx::Canvas* canvas) {
     }
   }
 
-  if (IsFrameCondensed()) {
-    PaintMaximizedFrameBorder(canvas);
-  } else {
-    PaintRestoredFrameBorder(canvas);
+  {
+#if BUILDFLAG(IS_LINUX)
+    // Affect the frame background only. Child views, including tab text and
+    // controls, are painted separately and keep their own opacity.
+    const int opacity = GetLinuxFrameBackgroundOpacity();
+    if (opacity < 255) {
+      canvas->SaveLayerAlpha(opacity, GetLocalBounds());
+    }
+#endif
+    if (IsFrameCondensed()) {
+      PaintMaximizedFrameBorder(canvas);
+    } else {
+      PaintRestoredFrameBorder(canvas);
+    }
+#if BUILDFLAG(IS_LINUX)
+    if (opacity < 255) {
+      canvas->Restore();
+    }
+#endif
   }
 
   // The window icon and title are painted by their respective views.
