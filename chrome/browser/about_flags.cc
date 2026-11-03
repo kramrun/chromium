@@ -1201,6 +1201,16 @@ const char kArcEnableAttestationFlag[] = "arc-enable-attestation";
 
 #endif  // BUILDFLAG(IS_CHROMEOS)
 
+#if BUILDFLAG(IS_LINUX)
+const FeatureEntry::Choice kLinuxUiAnimationSpeedChoices[] = {
+    {flags_ui::kGenericExperimentChoiceDefault, "", ""},
+    {"No animation", switches::kAnimationDurationScale, "0"},
+    {"Fast (0.5x duration)", switches::kAnimationDurationScale, "0.5"},
+    {"Slow (1.5x duration)", switches::kAnimationDurationScale, "1.5"},
+    {"Very slow (2x duration)", switches::kAnimationDurationScale, "2"},
+};
+#endif
+
 const FeatureEntry::Choice kForceUIDirectionChoices[] = {
     {flags_ui::kGenericExperimentChoiceDefault, "", ""},
     {flag_descriptions::kForceDirectionLtr, switches::kForceUIDirection,
@@ -14429,6 +14439,13 @@ const FeatureEntry kFeatureEntries[] = {
     // "LoginCustomFlags" in tools/metrics/histograms/enums.xml. See "Flag
     // Histograms" in tools/metrics/histograms/README.md (run the
     // AboutFlagsHistogramTest unit test to verify this process).
+#if BUILDFLAG(IS_LINUX)
+    {"linux-ui-animation-speed", "Linux UI animation duration",
+     "Adjusts the duration of supported Chromium interface animations. "
+     "Restart Chromium to apply. Does not control web page animations.",
+     kOsLinux, MULTI_VALUE_TYPE(kLinuxUiAnimationSpeedChoices)},
+#endif
+
 };
 
 class FlagsStateSingleton : public flags_ui::FlagsState::Delegate {
