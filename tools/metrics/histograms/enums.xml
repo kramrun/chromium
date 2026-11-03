@@ -19414,6 +19414,7 @@ from previous Chrome versions.
   <int value="1311860720" label="ChromeHomeNtpRedesign:disabled"/>
   <int value="1312025202" label="NTPOfflinePageSuggestions:disabled"/>
   <int value="1312201151" label="NtpAurora:enabled"/>
+  <int value="1312346043" label="animation-duration-scale"/>
   <int value="1312920918" label="EnableBubbleCornerRadiusUpdate:disabled"/>
   <int value="1313476409" label="ReportFeedUserActions:disabled"/>
   <int value="1313570156"
