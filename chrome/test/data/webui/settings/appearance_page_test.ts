@@ -227,6 +227,18 @@ suite('AppearancePage', function() {
   // <if expr="is_linux">
   const SYSTEM_THEME_PREF = 'extensions.theme.system_theme';
 
+  test('openLinuxAnimationSpeedExperiment', async () => {
+    const proxy = new TestOpenWindowProxy();
+    OpenWindowProxyImpl.setInstance(proxy);
+    const link = appearancePage.shadowRoot.querySelector<HTMLElement>(
+        '#linuxAnimationSpeed');
+    assertTrue(!!link);
+    link!.click();
+    assertEquals(
+        'chrome://flags/#linux-ui-animation-speed',
+        await proxy.whenCalled('openUrl'));
+  });
+
   test('openLinuxTabTintExperiment', async () => {
     const proxy = new TestOpenWindowProxy();
     OpenWindowProxyImpl.setInstance(proxy);

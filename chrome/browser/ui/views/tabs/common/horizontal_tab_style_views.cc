@@ -35,6 +35,7 @@
 #include "third_party/skia/include/core/SkRRect.h"
 #include "ui/base/theme_provider.h"
 #include "ui/color/color_provider_key.h"
+#include "ui/gfx/animation/animation.h"
 #include "ui/gfx/animation/tween.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/favicon_size.h"
@@ -825,6 +826,13 @@ void HorizontalTabStyleViews::PaintTabBackgroundFill(
       tint_color = SkColorSetARGB(16, 235, 65, 150);
     }
     if (tint_color != SK_ColorTRANSPARENT) {
+      // Reuse the tab hover animation; do not start a continuous animation.
+      // Keep the tint static when the system requests reduced motion.
+      if (!gfx::Animation::PrefersReducedMotion()) {
+        const double hover = std::clamp(GetHoverAnimationValue(), 0.0, 1.0);
+        tint_color =
+            SkColorSetA(tint_color, static_cast<SkAlpha>(16 + 8 * hover));
+      }
       cc::PaintFlags tint_flags;
       tint_flags.setAntiAlias(true);
       tint_flags.setColor(tint_color);

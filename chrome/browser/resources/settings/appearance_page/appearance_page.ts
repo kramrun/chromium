@@ -468,6 +468,11 @@ export class SettingsAppearancePageElement extends
   }
 
   // <if expr="is_linux">
+  protected onLinuxAnimationSpeedClick_() {
+    OpenWindowProxyImpl.getInstance().openUrl(
+        'chrome://flags/#linux-ui-animation-speed');
+  }
+
   protected onLinuxTabTintClick_() {
     OpenWindowProxyImpl.getInstance().openUrl(
         'chrome://flags/#linux-tab-background-tint');
