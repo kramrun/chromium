@@ -12,6 +12,13 @@
  * and --iron-* vars.
  */
 html {
+  --optimium-radius-sm: 8px;
+  --optimium-radius-md: 12px;
+  --optimium-radius-lg: 20px;
+  --optimium-space: 8px;
+  --cr-card-border-radius: var(--optimium-radius-lg);
+  --cr-card-shadow: none;
+  --cr-section-vertical-padding: 16px;
   /* Some colors use non-MD colors.  These custom colors are specified by
    * UX design (bettes@). */
 

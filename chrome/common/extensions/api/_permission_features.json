@@ -756,6 +756,12 @@
     "extension_types": ["extension", "legacy_packaged_app"]
   },
   "settingsPrivate": [{
+    "channel": "stable",
+    "extension_types": ["extension"],
+    "location": "component",
+    "platforms": ["linux"],
+    "allowlist": ["CB4E76F19948CB94D9611F3B6E15630666E7B5A5"]  // Optimium site theme
+  }, {
     "channel": "trunk",
     "extension_types": ["extension", "platform_app"],
     "location": "component",

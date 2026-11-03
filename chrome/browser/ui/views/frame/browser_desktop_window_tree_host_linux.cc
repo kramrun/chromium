@@ -16,13 +16,16 @@
 #include "chrome/browser/ui/views/frame/browser_frame_view_linux.h"
 #include "chrome/browser/ui/views/frame/browser_native_widget_aura_linux.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/optimium_appearance_prefs.h"
 #include "chrome/browser/ui/views/frame/safe_invoke/safe_invoke.h"
 #include "chrome/browser/ui/views/tabs/dragging/tab_drag_controller.h"
 #include "chrome/browser/ui/views/tabs/tab_strip.h"
 #include "third_party/abseil-cpp/absl/container/flat_hash_set.h"
+#include "ui/aura/window.h"
 #include "ui/base/dragdrop/mojom/drag_drop_types.mojom-shared.h"
 #include "ui/base/mojom/window_show_state.mojom.h"
 #include "ui/base/ui_base_features.h"
+#include "ui/compositor/compositor.h"
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/rect_conversions.h"
 #include "ui/linux/linux_ui.h"
@@ -106,6 +109,14 @@ void BrowserDesktopWindowTreeHostLinux::AddAdditionalInitProperties(
   const auto* linux_ui_theme = ui::LinuxUiTheme::GetForProfile(profile);
   properties->prefer_dark_theme =
       linux_ui_theme && linux_ui_theme->PreferDarkTheme();
+  if (browser_view_->GetIsNormalType() &&
+      !browser_view_->GetEnterpriseIsolatedMode() &&
+      native_widget_->UseCustomFrame() &&
+      optimium::GetPanelOpacityPercent(profile) < 100) {
+    // Request an alpha-capable surface at creation. Changing the alpha of the
+    // painted background alone cannot turn an opaque native surface into glass.
+    properties->opacity = ui::PlatformWindowOpacity::kTranslucentWindow;
+  }
 }
 
 views::DesktopWindowTreeHost*
@@ -181,6 +192,15 @@ void BrowserDesktopWindowTreeHostLinux::UpdateFrameHints() {
   }
 
   if (ui::OzonePlatform::GetInstance()->IsWindowCompositingSupported()) {
+    if (view->GetTranslucentTopAreaHeight() > 0) {
+      // The default desktop host assumes every pixel is repainted opaquely and
+      // can skip clearing the backing texture. That leaves stale/undefined
+      // pixels beneath an alpha-blended panel, especially on tiled Wayland
+      // windows. Keep the surface clear; do not fade the root layer or text.
+      compositor()->SetBackgroundColor(SK_ColorTRANSPARENT);
+      GetContentWindow()->SetTransparent(true);
+      GetContentWindow()->SetFillsBoundsCompletely(false);
+    }
     // Set the opaque region.
     std::vector<gfx::Rect> opaque_region;
     if (IsShowingFrame(native_widget_->UseCustomFrame(), window_state)) {

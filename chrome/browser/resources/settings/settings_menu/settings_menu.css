@@ -16,7 +16,26 @@
   box-sizing: border-box;
   display: block;
   padding-bottom: 5px; /* Prevents focus outlines from being cropped. */
-  padding-top: 8px;
+  padding-top: 12px;
+}
+
+.optimium-brand {
+  color: var(--cr-primary-text-color);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -.3px;
+  margin: 8px 24px 18px;
+}
+
+.cr-nav-menu-item {
+  border-radius: var(--optimium-radius-md, 12px);
+  margin: 2px 12px;
+  min-height: 44px;
+  padding-inline: 16px;
+}
+
+.cr-nav-menu-item .menu-label {
+  line-height: 1.4;
 }
 
 :host-context([settings-refresh-2026]) .cr-nav-menu-item {

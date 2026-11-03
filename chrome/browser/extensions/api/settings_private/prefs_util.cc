@@ -223,6 +223,11 @@ const PrefsUtil::TypedPrefMap& PrefsUtil::GetAllowlistedKeys() {
   }
   s_allowlist = new PrefsUtil::TypedPrefMap();
 
+  (*s_allowlist)["optimium.appearance.theme"] =
+      settings_api::PrefType::kDictionary;
+  (*s_allowlist)["optimium.appearance.website_theme_enabled"] =
+      settings_api::PrefType::kBoolean;
+
   // Miscellaneous
   (*s_allowlist)[::embedder_support::kAlternateErrorPagesEnabled] =
       settings_api::PrefType::kBoolean;

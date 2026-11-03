@@ -10,6 +10,7 @@ import '/shared/settings/controls/extension_controlled_indicator.js';
 import '../controls/settings_radio_group.js';
 import '../controls/settings_toggle_button.js';
 import '../settings_page/settings_section.js';
+import '../relaunch_confirmation_dialog.js';
 import './home_url_input.js';
 import '../controls/settings_dropdown_menu.js';
 
@@ -33,12 +34,12 @@ import type {MetricsBrowserProxy} from '../metrics_browser_proxy.js';
 import {MetricsBrowserProxyImpl} from '../metrics_browser_proxy.js';
 import {pageVisibility} from '../page_visibility.js';
 import type {AppearancePageVisibility} from '../page_visibility.js';
-import {RelaunchMixinLit} from '../relaunch_mixin_lit.js';
+import {RelaunchMixinLit, RestartType} from '../relaunch_mixin_lit.js';
 import {routes} from '../route.js';
 import {Router} from '../router.js';
 import {SettingsViewMixinLit} from '../settings_page/settings_view_mixin_lit.js';
 
-import type {AppearanceBrowserProxy} from './appearance_browser_proxy.js';
+import type {AppearanceBrowserProxy, OptimiumTheme} from './appearance_browser_proxy.js';
 import {AppearanceBrowserProxyImpl} from './appearance_browser_proxy.js';
 import {getCss} from './appearance_page.css.js';
 import {getHtml} from './appearance_page.html.js';
@@ -65,6 +66,24 @@ const TAB_STYLING_SETTING_ELEMENT_ID = 'kTabStylingSettingElementId';
 // </if>
 
 type PrefObject<T> = chrome.settingsPrivate.PrefObject<T>;
+
+function palette(
+    name: string, frame: string, toolbar: string, background: string,
+    text: string, icons: string, dark = true): OptimiumTheme {
+  return {name, dark, colors: {
+    frame, toolbar, ntp_background: background, tab_text: text,
+    toolbar_button_icon: icons, ntp_text: text,
+  }};
+}
+
+const OPTIMIUM_THEMES: OptimiumTheme[] = [
+  palette('Тихий фиолетовый', '#2e273b', '#393344', '#211e28', '#f5f1fa', '#d7c7eb'),
+  palette('Графит', '#23262b', '#30343b', '#191c21', '#edf0f5', '#b8c5dc'),
+  palette('Лес', '#24332f', '#31423b', '#1b2521', '#e7f2eb', '#b1d5be'),
+  palette('Сумерки', '#252d3c', '#344156', '#1c2330', '#edf2fb', '#b4c9ed'),
+  palette('Роза', '#382c33', '#493740', '#271f24', '#f9edf3', '#e2bbc9'),
+  palette('Тёплый свет', '#e4ddd2', '#f3ede4', '#faf6f0', '#302b26', '#65574b', false),
+];
 
 /**
  * 'settings-appearance-page' is the settings page containing appearance
@@ -142,6 +161,12 @@ export class SettingsAppearancePageElement extends
       designThemeColors_: {type: Object},
       designThemeName_: {type: String},
       designThemeStatus_: {type: String},
+      designThemeDark_: {type: Boolean},
+      designThemeBusy_: {type: Boolean},
+      designThemeActive_: {type: String},
+      designAppearanceOptions_: {type: Object},
+      designAppearanceBusy_: {type: Boolean},
+      designRestartRequired_: {type: Boolean},
       pageVisibility_: {type: Object},
       defaultZoom_: {type: Number},
 
@@ -195,7 +220,7 @@ export class SettingsAppearancePageElement extends
     };
   }
 
-  // The editor creates a theme package; it does not apply it automatically.
+  // Native palettes apply immediately and survive browser restarts.
   protected accessor designThemeColors_: Record<string, string> = {
     frame: '#2e273b',
     toolbar: '#393344',
@@ -204,17 +229,110 @@ export class SettingsAppearancePageElement extends
     ntp_background: '#211e28',
     ntp_text: '#f5f1fa',
   };
-  protected accessor designThemeName_: string = 'Quiet Violet';
+  protected accessor designThemeName_: string = 'Тихий фиолетовый';
   protected accessor designThemeStatus_: string = '';
+  protected accessor designThemeDark_: boolean = true;
+  protected accessor designThemeBusy_: boolean = false;
+  protected accessor designThemeActive_: string = '';
+  protected readonly designThemePresets_ = OPTIMIUM_THEMES;
+  protected accessor designAppearanceOptions_: Record<string, string|number|boolean> = {
+    panel_opacity: 100, tab_style: 'rounded', tab_tint: 'none',
+    tab_animation: false, website_theme_enabled: true,
+  };
+  protected accessor designAppearanceBusy_: boolean = false;
+  protected accessor designRestartRequired_: boolean = false;
+
+  protected async onDesignAppearanceOptionChange_(event: Event) {
+    const input = event.target as HTMLInputElement|HTMLSelectElement;
+    const option = input.dataset['option'];
+    if (!option || this.designAppearanceBusy_) {
+      return;
+    }
+    const value = input instanceof HTMLInputElement && input.type === 'checkbox' ?
+        input.checked : option === 'panel_opacity' ? Number(input.value) : input.value;
+    const previous = this.designAppearanceOptions_;
+    this.designAppearanceOptions_ = {...previous, [option]: value};
+    this.designAppearanceBusy_ = true;
+    try {
+      const saved = await this.appearanceBrowserProxy_.setOptimiumAppearanceOption(
+          option, value);
+      if (!saved) {
+        throw new Error('Setting was rejected');
+      }
+      if (option === 'panel_opacity') {
+        this.designRestartRequired_ = true;
+        this.designThemeStatus_ = 'Прозрачность сохранена. Перезапусти Optimium.';
+      } else {
+        this.designThemeStatus_ = option === 'website_theme_enabled' ?
+            'Оформление сайтов сохранено. Обнови уже открытые страницы.' :
+            'Оформление вкладок сохранено.';
+      }
+    } catch {
+      this.designAppearanceOptions_ = previous;
+      this.designThemeStatus_ = 'Не удалось изменить настройку.';
+    } finally {
+      this.designAppearanceBusy_ = false;
+    }
+  }
+
+  protected onDesignRestartClick_() {
+    this.performRestart(RestartType.RESTART);
+  }
+
+
+  protected async onDesignThemePresetClick_(event: Event) {
+    const name = (event.currentTarget as HTMLElement).dataset['name'];
+    const preset = OPTIMIUM_THEMES.find(theme => theme.name === name);
+    if (!preset || this.designThemeBusy_) {
+      return;
+    }
+    this.designThemeName_ = preset.name;
+    this.designThemeColors_ = {...preset.colors};
+    this.designThemeDark_ = preset.dark;
+    await this.onDesignThemeApplyClick_();
+  }
+
+  protected onDesignThemeDarkChange_(event: Event) {
+    this.designThemeDark_ = (event.target as HTMLInputElement).checked;
+  }
+
+  protected async onDesignThemeApplyClick_() {
+    if (this.designThemeBusy_) {
+      return;
+    }
+    const name = this.designThemeName_.trim();
+    if (!name) {
+      this.designThemeStatus_ = 'Укажи название темы.';
+      return;
+    }
+    this.designThemeBusy_ = true;
+    try {
+      const applied = await this.appearanceBrowserProxy_.applyOptimiumTheme({
+        name, dark: this.designThemeDark_, colors: this.designThemeColors_,
+      });
+      if (applied) {
+        this.designThemeActive_ = name;
+        this.designThemeStatus_ = `Тема «${name}» применена. Перезапуск не нужен.`;
+      } else {
+        this.designThemeStatus_ =
+            'Не удалось применить тему. Проверь цвета и ограничения профиля.';
+      }
+    } catch {
+      this.designThemeStatus_ = 'Не удалось применить тему. Попробуй ещё раз.';
+    } finally {
+      this.designThemeBusy_ = false;
+    }
+  }
+
 
   protected get designThemeFields_(): Array<{key: string, label: string}> {
     return [
-      {key: 'frame', label: this.i18n('designThemeFrame')},
-      {key: 'toolbar', label: this.i18n('designThemeToolbar')},
-      {key: 'tab_text', label: this.i18n('designThemeTabText')},
-      {key: 'toolbar_button_icon', label: this.i18n('designThemeIcons')},
-      {key: 'ntp_background', label: this.i18n('designThemeNtp')},
-      {key: 'ntp_text', label: this.i18n('designThemeNtpText')},
+      {key: 'frame', label: 'Панель вкладок'},
+      {key: 'toolbar', label: 'Панель инструментов и активная вкладка'},
+      {key: 'tab_text', label: 'Текст вкладок'},
+      {key: 'toolbar_button_icon', label: 'Значки панели'},
+      {key: 'ntp_background', label: 'Главная и фон поиска'},
+      {key: 'ntp_text', label: 'Текст главной и поиска'},
     ];
   }
 
@@ -231,7 +349,7 @@ export class SettingsAppearancePageElement extends
     }
   }
 
-  protected onDesignThemeExport_() {
+  protected onDesignThemeExportClick_() {
     const name = this.designThemeName_.trim();
     if (!name) {
       this.designThemeStatus_ = this.i18n('designThemeNameRequired');
@@ -252,10 +370,10 @@ export class SettingsAppearancePageElement extends
     anchor.download = 'manifest.json';
     anchor.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    this.designThemeStatus_ = this.i18n('designThemeDownloaded');
+    this.designThemeStatus_ = 'Тема сохранена в файл. Для установки здесь нажми «Применить».';
   }
 
-  protected async onDesignThemeImport_(event: Event) {
+  protected async onDesignThemeImportChange_(event: Event) {
     const input = event.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) {
@@ -287,9 +405,13 @@ export class SettingsAppearancePageElement extends
       if (typeof data.name === 'string') {
         this.designThemeName_ = data.name.slice(0, 45);
       }
-      this.designThemeStatus_ = this.i18n('designThemeImported');
+      const bg = colors['ntp_background'];
+      const rgb = [1, 3, 5].map(i => parseInt(bg.slice(i, i + 2), 16));
+      this.designThemeDark_ =
+          0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2] < 140;
+      this.designThemeStatus_ = 'Тема загружена. Нажми «Применить».';
     } catch {
-      this.designThemeStatus_ = this.i18n('designThemeInvalid');
+      this.designThemeStatus_ = 'Файл не содержит поддерживаемую тему.';
     } finally {
       input.value = '';
     }
@@ -447,6 +569,18 @@ export class SettingsAppearancePageElement extends
 
   override connectedCallback() {
     super.connectedCallback();
+    this.appearanceBrowserProxy_.getOptimiumTheme().then(theme => {
+      if (theme.name && theme.colors && typeof theme.dark === 'boolean') {
+        this.designThemeName_ = theme.name;
+        this.designThemeActive_ = theme.name;
+        this.designThemeColors_ = {...theme.colors};
+        this.designThemeDark_ = theme.dark;
+      }
+    }).catch(() => {});
+
+    this.appearanceBrowserProxy_.getOptimiumAppearanceOptions().then(options => {
+      this.designAppearanceOptions_ = options;
+    }).catch(() => {});
 
     this.mirrorPrefs({
       'autogenerated.theme.policy.color': 'themePolicyColorPref_',
@@ -516,6 +650,9 @@ export class SettingsAppearancePageElement extends
         // </if>
     ) {
       this.themeChanged_();
+      if (this.themeIdPref_?.value !== AUTOGENERATED_THEME_ID) {
+        this.designThemeActive_ = '';
+      }
     }
 
     if (changedPrivateProperties.has('pinnedActionsPref_') ||

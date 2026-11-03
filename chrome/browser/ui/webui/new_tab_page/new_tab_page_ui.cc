@@ -109,6 +109,7 @@
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/search/ntp_features.h"
+#include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/signin/public/identity_manager/accounts_in_cookie_jar_info.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
@@ -944,6 +945,22 @@ content::WebUIDataSource* CreateAndAddNewTabPageUiHtmlSource(
   source->AddLocalizedStrings(
       NewTabPageUI::GetLoadTimeData(profile, session_allows_drag_and_drop));
 
+  // The dashboard submits only on user action, using the profile's selected
+  // search provider. No remote suggestions or AI modules are instantiated.
+  std::string optimium_search_url;
+  auto* search_service = TemplateURLServiceFactory::GetForProfile(profile);
+  const auto* provider = search_service->GetDefaultSearchProvider();
+  if (provider) {
+    TemplateURLRef::SearchTermsArgs args(u"OPTIMIUMQUERY");
+    GURL search_url(provider->url_ref().ReplaceSearchTerms(
+        args, search_service->search_terms_data()));
+    if (search_url.SchemeIsHTTPOrHTTPS()) {
+      optimium_search_url = search_url.spec();
+    }
+  }
+  source->AddString("optimiumSearchUrl", optimium_search_url);
+
+
   webui::SetupWebUIDataSource(source, kNewTabPageResources,
                               IDR_NEW_TAB_PAGE_NEW_TAB_PAGE_HTML);
 
@@ -979,6 +996,15 @@ content::WebUIDataSource* CreateAndAddNewTabPageUiHtmlSource(
                          google_base_url.spec().c_str(),
                          chrome::kChromeUIUntrustedNewTabPageUrl,
                          chrome::kChromeUIUntrustedNtpMicrosoftAuthURL));
+  // Optional dashboard widgets have a narrow allowlist. They are disabled
+  // until the user explicitly enables them; no remote scripts run in WebUI.
+  source->OverrideContentSecurityPolicy(
+      network::mojom::CSPDirectiveName::FrameSrc,
+      "frame-src https://w.soundcloud.com chrome-untrusted://new-tab-page "
+      "chrome-untrusted://ntp-microsoft-auth;");
+  source->OverrideContentSecurityPolicy(
+      network::mojom::CSPDirectiveName::ConnectSrc,
+      "connect-src 'self';");
   source->OverrideContentSecurityPolicy(
       network::mojom::CSPDirectiveName::MediaSrc,
       "media-src blob: data: 'self';");

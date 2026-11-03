@@ -10,7 +10,6 @@
 #include <tuple>
 #include <variant>
 
-#include "base/command_line.h"
 #include "base/i18n/rtl.h"
 #include "build/build_config.h"
 #include "chrome/browser/profiles/profile.h"
@@ -21,6 +20,7 @@
 #include "chrome/browser/ui/views/frame/browser_widget.h"
 #include "chrome/browser/ui/views/frame/custom_corners.h"
 #include "chrome/browser/ui/views/frame/custom_floating_corner.h"
+#include "chrome/browser/ui/views/frame/optimium_appearance_prefs.h"
 #include "chrome/browser/ui/views/frame/safe_invoke/safe_invoke.h"
 #include "chrome/browser/ui/views/frame/themed_background.h"
 #include "chrome/grit/theme_resources.h"
@@ -353,6 +353,7 @@ void CustomCornersBackground::Paint(gfx::Canvas* canvas,
   gfx::Rect rect(view->GetLocalBounds());
 
   ColorChoiceWithAlpha primary_color = primary_color_;
+  bool clear_panel_background = false;
 #if BUILDFLAG(IS_LINUX)
   // The tabbed top container draws a background behind the toolbar. Apply the
   // opacity once there and omit the toolbar's duplicate fill. Children (such
@@ -375,23 +376,16 @@ void CustomCornersBackground::Paint(gfx::Canvas* canvas,
       !theme_provider->HasCustomImage(IDR_THEME_FRAME) &&
       !theme_provider->HasCustomImage(IDR_THEME_FRAME_INACTIVE) &&
       !theme_provider->HasCustomImage(IDR_THEME_FRAME_OVERLAY) &&
-      !theme_provider->HasCustomImage(IDR_THEME_FRAME_OVERLAY_INACTIVE) &&
-      top && toolbar && toolbar->parent() == top && top->background() &&
-      top->background()->IsA<CustomCornersBackground>() &&
-      top->background()->AsA<CustomCornersBackground>()->is_visible()) {
-    const std::string value = base::CommandLine::ForCurrentProcess()
-                                  ->GetSwitchValueASCII("linux-ui-transparency");
-    float opacity = 1.0f;
-    if (value == "85") {
-      opacity = 0.85f;
-    } else if (value == "70") {
-      opacity = 0.70f;
-    } else if (value == "50") {
-      opacity = 0.50f;
-    }
+      !theme_provider->HasCustomImage(IDR_THEME_FRAME_OVERLAY_INACTIVE)) {
+    const float opacity = optimium::GetPanelOpacityPercent(profile) / 100.0f;
     if (opacity < 1.0f) {
-      if (view == top) {
+      const bool parent_paints_background =
+          top && top->background() &&
+          top->background()->IsA<CustomCornersBackground>() &&
+          top->background()->AsA<CustomCornersBackground>()->is_visible();
+      if (view == top || (view == toolbar && !parent_paints_background)) {
         primary_color.opacity *= opacity;
+        clear_panel_background = true;
       } else if (view == toolbar) {
         primary_color.opacity = 0.0f;
       }
@@ -399,12 +393,22 @@ void CustomCornersBackground::Paint(gfx::Canvas* canvas,
   }
 #endif
 
+  if (clear_panel_background) {
+    // This background can overlap the non-client frame on the same raster
+    // layer. Replace its backing pixels before the one alpha fill so opacity
+    // does not accumulate across the frame, top container and toolbar.
+    cc::PaintFlags clear_flags;
+    clear_flags.setBlendMode(SkBlendMode::kClear);
+    clear_flags.setAntiAlias(true);
+    canvas->DrawPath(GetBackgroundPath(view_->GetLocalBounds()), clear_flags);
+  }
+
   const VisualCorners corners = GetMirroredCorners();
   const Outline outline = GetMirroredOutline();
 
   // Function for maybe clipping a non-opaque corner with background's
   // background.
-  const auto maybe_clip = [this, &primary_color](gfx::Canvas* canvas,
+  const auto maybe_clip = [&primary_color](gfx::Canvas* canvas,
                                                  VisualCorner corner,
                                                  const gfx::Rect& bounds) {
     static constexpr gfx::Insets kCurveCutoutInsets(1);

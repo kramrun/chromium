@@ -15,6 +15,7 @@ build_webui("build") {
     "image.html",
     "microsoft_auth.html",
     "one_google_bar.html",
+    "optimium_weather.html",
   ]
 
   ts_files = [
@@ -24,6 +25,7 @@ build_webui("build") {
     "msal_browser.ts",
     "one_google_bar.ts",
     "one_google_bar_api.ts",
+    "optimium_weather.ts",
   ]
 
   extra_grdp_files = [ "$target_gen_dir/msal_browser_resources.grdp" ]

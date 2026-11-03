@@ -1,0 +1,8 @@
+// Add this rule to ~/.config/niri/config.kdl, or include this file there.
+// Optimium must use Wayland and the app-id "optimium" (launcher: --class=optimium).
+window-rule {
+    match app-id="^optimium$"
+    // Otherwise Niri draws the focus-ring color behind the entire CSD window,
+    // which appears as a solid green/colored panel despite correct client alpha.
+    draw-border-with-background false
+}

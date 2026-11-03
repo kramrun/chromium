@@ -48,6 +48,10 @@ class AppearanceHandler : public SettingsPageUIHandler {
   void PinnedToolbarActionsAreDefault(const base::ListValue& args);
   // Records the vertical tab strip mode change.
   void HandleRecordVerticalTabStripModeChanged(const base::ListValue& args);
+  void HandleGetOptimiumTheme(const base::ListValue& args);
+  void HandleApplyOptimiumTheme(const base::ListValue& args);
+  void HandleGetOptimiumAppearanceOptions(const base::ListValue& args);
+  void HandleSetOptimiumAppearanceOption(const base::ListValue& args);
 
   raw_ptr<Profile> profile_;  // Weak pointer.
 

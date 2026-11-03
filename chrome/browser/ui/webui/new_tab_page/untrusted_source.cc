@@ -216,6 +216,14 @@ void UntrustedSource::StartDataRequest(
     }
     return;
   }
+  if (path == "optimium_weather.html" || path == "optimium_weather.js") {
+    ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
+    std::move(callback).Run(bundle.LoadDataResourceBytes(
+        path == "optimium_weather.html"
+            ? IDR_NEW_TAB_PAGE_UNTRUSTED_OPTIMIUM_WEATHER_HTML
+            : IDR_NEW_TAB_PAGE_UNTRUSTED_OPTIMIUM_WEATHER_JS));
+    return;
+  }
   if (path == "one_google_bar.js") {
     ui::ResourceBundle& bundle = ui::ResourceBundle::GetSharedInstance();
     std::move(callback).Run(bundle.LoadDataResourceBytes(
@@ -321,7 +329,8 @@ bool UntrustedSource::ShouldServiceRequest(
   return path == "one-google-bar" || path == "one_google_bar.js" ||
          path == "one_google_bar_api.js" || path == "image" ||
          path == "background_image" || path == "custom_background_image" ||
-         path == "background_image.js" || IsValidBackgroundImagePath(path);
+         path == "background_image.js" || path == "optimium_weather.html" ||
+         path == "optimium_weather.js" || IsValidBackgroundImagePath(path);
 }
 
 void UntrustedSource::OnOneGoogleBarDataUpdated() {
