@@ -7,6 +7,10 @@ import type {CustomizeColorSchemeModeClientRemote, SettingsAppearancePageElement
 import {AppearanceBrowserProxyImpl, ColorSchemeMode, customizeColorSchemeModeBrowserProxyFactory, CustomizeColorSchemeModeHandlerRemote, loadTimeData, MetricsBrowserProxyImpl, PrefsBrowserProxy, PrefService, SystemTheme} from 'chrome://settings/settings.js';
 import {assertEquals, assertFalse, assertTrue} from 'chrome://webui-test/chai_assert.js';
 import {TestMock} from 'chrome://webui-test/test_mock.js';
+// <if expr="is_linux">
+import {OpenWindowProxyImpl} from 'chrome://resources/js/open_window_proxy.js';
+import {TestOpenWindowProxy} from 'chrome://webui-test/test_open_window_proxy.js';
+// </if>
 import {isVisible, microtasksFinished} from 'chrome://webui-test/test_util.js';
 
 import {TestAppearanceBrowserProxy} from './test_appearance_browser_proxy.js';
@@ -223,6 +227,30 @@ suite('AppearancePage', function() {
   // <if expr="is_linux">
   const SYSTEM_THEME_PREF = 'extensions.theme.system_theme';
 
+  test('openLinuxAnimationSpeedExperiment', async () => {
+    const proxy = new TestOpenWindowProxy();
+    OpenWindowProxyImpl.setInstance(proxy);
+    const link = appearancePage.shadowRoot.querySelector<HTMLElement>(
+        '#linuxAnimationSpeed');
+    assertTrue(!!link);
+    link!.click();
+    assertEquals(
+        'chrome://flags/#linux-ui-animation-speed',
+        await proxy.whenCalled('openUrl'));
+  });
+
+  test('openLinuxTabTintExperiment', async () => {
+    const proxy = new TestOpenWindowProxy();
+    OpenWindowProxyImpl.setInstance(proxy);
+    const link = appearancePage.shadowRoot.querySelector<HTMLElement>(
+        '#linuxTabTint');
+    assertTrue(!!link);
+    link!.click();
+    assertEquals(
+        'chrome://flags/#linux-tab-background-tint',
+        await proxy.whenCalled('openUrl'));
+  });
+
   test('useDefaultThemeLinux', async () => {
     await colorSchemeHandler.whenCalled('initializeColorSchemeMode');
 
@@ -389,6 +417,45 @@ suite('AppearancePage', function() {
 
     assertFalse(
         appearancePage.shadowRoot.querySelector('managed-dialog')!.hidden);
+  });
+
+  test('themeEditorPreviewAndInvalidImport', async () => {
+    const root = appearancePage.shadowRoot!;
+    const editor = root.querySelector<HTMLDetailsElement>('#designThemeEditor')!;
+    assertFalse(editor.open);
+    editor.querySelector('summary')!.click();
+    assertTrue(editor.open);
+
+    const color = editor.querySelector<HTMLInputElement>(
+        'input[data-key="frame"]')!;
+    color.value = '#123456';
+    color.dispatchEvent(new Event('input', {bubbles: true}));
+    await microtasksFinished();
+    assertEquals('#123456',
+        editor.querySelector('svg path')!.getAttribute('fill'));
+
+    const file = new File(
+        ['{"theme":{"colors":{"frame":[999,0,0]}}}'], 'manifest.json',
+        {type: 'application/json'});
+    const transfer = new DataTransfer();
+    transfer.items.add(file);
+    const input = editor.querySelector<HTMLInputElement>('input[type="file"]')!;
+    input.files = transfer.files;
+    const status = editor.querySelector<HTMLElement>('[role="status"]')!;
+    const changed = new Promise<void>(resolve => {
+      const observer = new MutationObserver(() => {
+        observer.disconnect();
+        resolve();
+      });
+      observer.observe(status, {characterData: true, childList: true, subtree: true});
+    });
+    input.dispatchEvent(new Event('change', {bubbles: true}));
+    await changed;
+    await microtasksFinished();
+    assertEquals('#123456',
+        editor.querySelector('svg path')!.getAttribute('fill'));
+    assertEquals(loadTimeData.getString('designThemeInvalid'),
+        editor.querySelector('[role="status"]')!.textContent!.trim());
   });
 
   test('openCustomizeChrome', function() {

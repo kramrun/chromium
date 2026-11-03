@@ -6,12 +6,20 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <string>
 #include <utility>
 
+#include "base/command_line.h"
+#include "base/functional/bind.h"
 #include "base/i18n/rtl.h"
 #include "base/memory/raw_ptr.h"
 #include "base/numerics/safe_conversions.h"
+#include "base/time/time.h"
+#include "base/timer/timer.h"
+#include "build/build_config.h"
 #include "cc/paint/paint_flags.h"
+#include "chrome/browser/profiles/profile.h"
 #include "chrome/browser/themes/theme_properties.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/color/chrome_color_id.h"
@@ -30,12 +38,15 @@
 #include "third_party/skia/include/core/SkPathBuilder.h"
 #include "third_party/skia/include/core/SkRRect.h"
 #include "ui/base/theme_provider.h"
+#include "ui/color/color_provider_key.h"
+#include "ui/gfx/animation/animation.h"
 #include "ui/gfx/animation/tween.h"
 #include "ui/gfx/canvas.h"
 #include "ui/gfx/favicon_size.h"
 #include "ui/gfx/geometry/insets.h"
 #include "ui/gfx/geometry/skia_conversions.h"
 #include "ui/gfx/scoped_canvas.h"
+#include "ui/native_theme/native_theme.h"
 #include "ui/views/controls/separator.h"
 #include "ui/views/widget/widget.h"
 
@@ -794,6 +805,87 @@ void HorizontalTabStyleViews::PaintTabBackgroundFill(
                          delegate_->GetView()->GetLocalBounds(), scale),
                      flags);
   }
+
+#if BUILDFLAG(IS_LINUX)
+  // Experimental, opt-in tint of the background only. Child views such as the
+  // title and controls are painted separately after this view's background.
+  BrowserWindowInterface* tint_browser = delegate_->GetBrowserWindowInterface();
+  const ui::NativeTheme* native_theme = delegate_->GetView()->GetNativeTheme();
+  if (selection_state == TabStyle::TabSelectionState::kActive &&
+      !fill_id.has_value() && tint_browser && tint_browser->GetProfile() &&
+      !tint_browser->GetProfile()->IsOffTheRecord() && native_theme &&
+      native_theme->forced_colors() ==
+          ui::ColorProviderKey::ForcedColors::kNone) {
+    const std::string tint = base::CommandLine::ForCurrentProcess()
+                                 ->GetSwitchValueASCII(
+                                     "linux-tab-background-tint");
+    SkColor tint_color = SK_ColorTRANSPARENT;
+    if (tint == "blue") {
+      tint_color = SkColorSetARGB(16, 0, 110, 255);
+    } else if (tint == "purple") {
+      tint_color = SkColorSetARGB(16, 145, 60, 235);
+    } else if (tint == "turquoise") {
+      tint_color = SkColorSetARGB(16, 0, 190, 185);
+    } else if (tint == "pink") {
+      tint_color = SkColorSetARGB(16, 235, 65, 150);
+    }
+    if (tint_color != SK_ColorTRANSPARENT) {
+      // A single delayed repaint is scheduled from paint, rather than a
+      // permanent timer. No more repaints are requested once the view stops
+      // being painted, or the window is hidden or loses focus.
+      views::View* view = delegate_->GetView();
+      views::Widget* widget = view->GetWidget();
+      const bool animate =
+          base::CommandLine::ForCurrentProcess()->HasSwitch(
+              "linux-tab-background-animation") &&
+          !gfx::Animation::PrefersReducedMotion() &&
+          gfx::Animation::ShouldRenderRichAnimation() && widget &&
+          widget->IsVisible() && widget->IsActive() && view->IsDrawn();
+      if (animate) {
+        constexpr double kCycleMilliseconds = 12000.0;
+        constexpr double kTwoPi = 6.283185307179586;
+        const double phase =
+            (1.0 - std::cos(kTwoPi *
+                            std::fmod(base::TimeTicks::Now()
+                                          .since_origin()
+                                          .InMilliseconds(),
+                                      kCycleMilliseconds) /
+                            kCycleMilliseconds)) /
+            2.0;
+        const SkColor second_color = SkColorSetRGB(115, 90, 235);
+        tint_color = SkColorSetARGB(
+            16,
+            static_cast<uint8_t>(std::lerp(SkColorGetR(tint_color),
+                                         SkColorGetR(second_color), phase)),
+            static_cast<uint8_t>(std::lerp(SkColorGetG(tint_color),
+                                         SkColorGetG(second_color), phase)),
+            static_cast<uint8_t>(std::lerp(SkColorGetB(tint_color),
+                                         SkColorGetB(second_color), phase)));
+        if (!tint_repaint_timer_) {
+          tint_repaint_timer_ = std::make_unique<base::OneShotTimer>();
+        }
+        if (!tint_repaint_timer_->IsRunning()) {
+          tint_repaint_timer_->Start(
+              FROM_HERE, base::Milliseconds(100),
+              base::BindOnce([](views::View* target) { target->SchedulePaint(); },
+                             base::Unretained(view)));
+        }
+      }
+      // Reuse the tab hover animation for a small additional brightness.
+      if (!gfx::Animation::PrefersReducedMotion()) {
+        const double hover = std::clamp(GetHoverAnimationValue(), 0.0, 1.0);
+        tint_color =
+            SkColorSetA(tint_color, static_cast<SkAlpha>(16 + 8 * hover));
+      }
+      cc::PaintFlags tint_flags;
+      tint_flags.setAntiAlias(true);
+      tint_flags.setColor(tint_color);
+      canvas->DrawRect(gfx::ScaleToEnclosingRect(
+                           delegate_->GetView()->GetLocalBounds(), scale),
+                       tint_flags);
+    }
+  }
+#endif
 
   if (fill_id.has_value()) {
     gfx::ScopedCanvas scale_scoper(canvas);

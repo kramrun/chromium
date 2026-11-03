@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Мастер тем Chromium</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="editor.js" defer></script>
+</head>
+<body>
+  <main class="shell">
+    <header class="intro">
+      <div><p class="eyebrow">CHROMIUM · ОФОРМЛЕНИЕ</p><h1>Мастер тем</h1><p class="muted">Подберите цвета интерфейса и сохраните собственную тему.</p></div>
+      <button id="export" class="primary" type="button">Скачать manifest.json</button>
+    </header>
+    <div class="layout">
+      <section class="card controls" aria-labelledby="settings-title">
+        <div class="section-head"><div><h2 id="settings-title">Цвета темы</h2><p class="muted">Изменения сразу появятся в примере.</p></div><button class="text-button" id="reset" type="button">Сбросить</button></div>
+        <label class="name-label" for="theme-name">Название темы</label>
+        <input id="theme-name" class="name-input" maxlength="45" value="Quiet Violet" autocomplete="off">
+        <div class="color-list" id="color-list"></div>
+        <p id="contrast" class="notice" role="status"></p>
+        <label class="import-button">Открыть manifest.json<input id="import" type="file" accept=".json,application/json" hidden></label>
+        <p id="status" class="status" role="status"></p>
+      </section>
+      <div class="right-column">
+        <section class="card preview-card" aria-labelledby="preview-title"><div class="section-head"><div><h2 id="preview-title">Предпросмотр</h2><p class="muted">Приблизительный вид браузера</p></div><span class="badge">Пример</span></div>
+          <div class="browser" id="browser-preview">
+            <div class="tabbar"><div class="tab active">Новая вкладка <span>×</span></div><div class="tab inactive">Вкладка <span>×</span></div><span class="plus">＋</span></div>
+            <div class="toolbar"><span>‹</span><span>›</span><span>⟳</span><div class="address">Поиск или URL</div><span>⋮</span></div>
+            <div class="new-tab"><div class="ntp-content"><div class="new-tab-title">Новая вкладка</div><div class="search">Поиск в интернете</div><p>Цвета и элементы могут отличаться от результата в Chromium.</p></div></div>
+          </div>
+        </section>
+        <section class="card instructions"><h2>Как установить</h2><ol><li>Скачайте <b>manifest.json</b> и положите его в отдельную папку.</li><li>Откройте <b>chrome://extensions</b>, включите режим разработчика и нажмите «Загрузить распакованное расширение».</li><li>Выберите папку с файлом. Чтобы вернуть стандартную тему, откройте настройки внешнего вида Chromium.</li></ol><p class="muted">Тема меняет цвета интерфейса и новой вкладки. Она не изменяет сайты, не добавляет прозрачность или анимацию.</p></section>
+      </div>
+    </div>
+  </main>
+</body>
+</html>

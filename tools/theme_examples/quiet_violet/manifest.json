@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "Quiet Violet",
+  "description": "A restrained violet theme for the browser interface.",
+  "version": "1.0.0",
+  "theme": {
+    "colors": {
+      "frame": [46, 39, 59],
+      "toolbar": [57, 51, 68],
+      "tab_text": [245, 241, 250],
+      "toolbar_button_icon": [226, 220, 236],
+      "ntp_background": [33, 30, 40],
+      "ntp_text": [245, 241, 250]
+    }
+  }
+}
