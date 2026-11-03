@@ -1201,6 +1201,16 @@ const char kArcEnableAttestationFlag[] = "arc-enable-attestation";
 
 #endif  // BUILDFLAG(IS_CHROMEOS)
 
+#if BUILDFLAG(IS_LINUX)
+const FeatureEntry::Choice kLinuxUiAnimationSpeedChoices[] = {
+    {flags_ui::kGenericExperimentChoiceDefault, "", ""},
+    {"Instant supported animations", switches::kAnimationDurationScale, "0"},
+    {"Fast (0.5x duration)", switches::kAnimationDurationScale, "0.5"},
+    {"Slow (1.5x duration)", switches::kAnimationDurationScale, "1.5"},
+    {"Very slow (2x duration)", switches::kAnimationDurationScale, "2"},
+};
+#endif
+
 const FeatureEntry::Choice kForceUIDirectionChoices[] = {
     {flags_ui::kGenericExperimentChoiceDefault, "", ""},
     {flag_descriptions::kForceDirectionLtr, switches::kForceUIDirection,
@@ -14423,6 +14433,13 @@ const FeatureEntry kFeatureEntries[] = {
      flag_descriptions::kPreserveDownloadLastModifiedName,
      flag_descriptions::kPreserveDownloadLastModifiedDescription, kOsAll,
      FEATURE_VALUE_TYPE(download::features::kPreserveDownloadLastModified)},
+
+#if BUILDFLAG(IS_LINUX)
+    {"linux-ui-animation-speed", "Linux UI animation duration",
+     "Adjusts the duration of supported Chromium interface animations. "
+     "Restart Chromium to apply. Does not control web page animations.",
+     kOsLinux, MULTI_VALUE_TYPE(kLinuxUiAnimationSpeedChoices)},
+#endif
 
     // Add new entries above this line.
     // NOTE: Adding a new flag requires adding a corresponding entry to enum
