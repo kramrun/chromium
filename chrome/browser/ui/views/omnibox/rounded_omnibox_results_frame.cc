@@ -4,12 +4,14 @@
 
 #include "chrome/browser/ui/views/omnibox/rounded_omnibox_results_frame.h"
 
+#include <algorithm>
 #include <memory>
 #include <utility>
 
 #include "base/functional/bind.h"
 #include "base/memory/raw_ptr.h"
 #include "build/build_config.h"
+#include "cc/paint/paint_flags.h"
 #include "chrome/browser/themes/theme_service.h"
 #include "chrome/browser/ui/color/chrome_color_id.h"
 #include "chrome/browser/ui/layout_constants.h"
@@ -25,10 +27,16 @@
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/base/pointer/touch_ui_controller.h"
 #include "ui/compositor/layer.h"
+#include "ui/gfx/canvas.h"
+#include "ui/gfx/geometry/insets_f.h"
+#include "ui/gfx/geometry/rect_f.h"
 #include "ui/gfx/geometry/rounded_corners_f.h"
+#include "ui/gfx/scoped_canvas.h"
+#include "ui/views/background.h"
 #include "ui/views/bubble/bubble_border.h"
 #include "ui/views/layout/layout_provider.h"
 #include "ui/views/metadata/view_factory.h"
+#include "ui/views/painter.h"
 #include "ui/views/view_utils.h"
 
 #if defined(USE_AURA)
@@ -41,6 +49,45 @@
 #endif
 
 namespace {
+
+#if BUILDFLAG(IS_LINUX)
+// Cover the antialiased edge of the location bar when the separate results
+// surface cuts a hole over it. A single device-pixel stroke can leave small
+// remnants at the diagonal corners where the two rasterizations differ.
+class OmniboxCutoutPainter : public views::Painter {
+ public:
+  OmniboxCutoutPainter(SkColor color, int radius)
+      : color_(color), radius_(radius) {}
+
+  gfx::Size GetMinimumSize() const override { return gfx::Size(); }
+
+  void Paint(gfx::Canvas* canvas, const gfx::Size& size) override {
+    gfx::ScopedCanvas scoped_canvas(canvas);
+    const float scale = canvas->UndoDeviceScaleFactor();
+    gfx::RectF rect(gfx::ScaleToEnclosedRect(gfx::Rect(size), scale));
+    const float radius = radius_ * scale;
+    cc::PaintFlags flags;
+    flags.setBlendMode(SkBlendMode::kSrc);
+    flags.setAntiAlias(false);
+    flags.setColor(SK_ColorTRANSPARENT);
+    flags.setStyle(cc::PaintFlags::kFill_Style);
+    canvas->DrawRoundRect(rect, radius, flags);
+
+    // Also cover the antialiased fringe just outside the original edge. The
+    // view's bounds clip the overdraw and the outer popup still supplies its
+    // own antialiased silhouette.
+    rect.Inset(gfx::InsetsF(0.5f));
+    flags.setColor(color_);
+    flags.setStyle(cc::PaintFlags::kStroke_Style);
+    flags.setStrokeWidth(3.0f);
+    canvas->DrawRoundRect(rect, std::max(0.0f, radius - 0.5f), flags);
+  }
+
+ private:
+  const SkColor color_;
+  const int radius_;
+};
+#endif
 
 #if !defined(USE_AURA)
 
@@ -166,13 +213,21 @@ class TopBackgroundView : public views::View {
     const SkColor background_color =
         GetColorProvider()->GetColor(kColorOmniboxResultsBackground);
 
-    // Paint a stroke of the background color as a 1 px border to hide the
+    // Paint a stroke of the background color as a border to hide the
     // underlying antialiased location bar/toolbar edge.  The round rect here is
     // not antialiased, since the goal is to completely cover the underlying
     // pixels, and AA would let those on the edge partly bleed through.
+#if BUILDFLAG(IS_LINUX)
+    SetBackground(views::CreateBackgroundFromPainter(
+        std::make_unique<OmniboxCutoutPainter>(
+            background_color,
+            LocationBarView::ComputeBorderRadius(
+                location_bar_->Bounds().size()))));
+#else
     SetBackground(LocationBarView::CreateRoundRectBackground(
         SK_ColorTRANSPARENT, background_color, location_bar_->Bounds().size(),
         SkBlendMode::kSrc, false));
+#endif
   }
 
 #if !defined(USE_AURA)
