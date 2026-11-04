@@ -568,7 +568,8 @@ void ComponentLoader::AddAimEligibilityExtension() {
 }
 
 void ComponentLoader::AddNewTabPageExtension() {
-#if BUILDFLAG(ENABLE_WEBUI_NTP)
+  // Optimium ships its dashboard as the built-in NewTabPageUI resource.
+#if BUILDFLAG(ENABLE_WEBUI_NTP) && BUILDFLAG(GOOGLE_CHROME_BRANDING)
   if (!base::FeatureList::IsEnabled(ntp_features::kNtpComponentExtension)) {
     return;
   }
@@ -781,6 +782,13 @@ void ComponentLoader::AddDefaultComponentExtensionsWithBackgroundPages(
   if (should_disable_background_extensions) {
     return;
   }
+
+#if BUILDFLAG(IS_LINUX)
+  if (!skip_session_components) {
+    Add(IDR_OPTIMIUM_SITE_THEME_MANIFEST,
+        base::FilePath(FILE_PATH_LITERAL("optimium_site_theme")));
+  }
+#endif
 
   if (!skip_session_components) {
 #if BUILDFLAG(IS_CHROMEOS)

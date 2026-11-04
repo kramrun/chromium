@@ -14,6 +14,10 @@ export class TestAppearanceBrowserProxy extends TestBrowserProxy implements
 
   constructor() {
     super([
+      'getOptimiumTheme',
+      'applyOptimiumTheme',
+      'getOptimiumAppearanceOptions',
+      'setOptimiumAppearanceOption',
       'getDefaultZoom',
       'getThemeInfo',
       'isChildAccount',
@@ -32,6 +36,31 @@ export class TestAppearanceBrowserProxy extends TestBrowserProxy implements
       'validateStartupPage',
       'pinnedToolbarActionsAreDefault',
     ]);
+  }
+
+  getOptimiumTheme() {
+    this.methodCalled('getOptimiumTheme');
+    return Promise.resolve({});
+  }
+
+  applyOptimiumTheme(theme: {
+    name: string, dark: boolean, colors: Record<string, string>,
+  }) {
+    this.methodCalled('applyOptimiumTheme', theme);
+    return Promise.resolve(true);
+  }
+
+  getOptimiumAppearanceOptions() {
+    this.methodCalled('getOptimiumAppearanceOptions');
+    return Promise.resolve({
+      panel_opacity: 100, tab_style: 'rounded', tab_tint: 'none',
+      tab_animation: false, website_theme_enabled: true,
+    });
+  }
+
+  setOptimiumAppearanceOption(name: string, value: string|number|boolean) {
+    this.methodCalled('setOptimiumAppearanceOption', name, value);
+    return Promise.resolve(true);
   }
 
   getDefaultZoom() {

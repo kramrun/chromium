@@ -24,9 +24,10 @@ export enum MemorySaverModeAggressiveness {
   CONSERVATIVE = 0,
   MEDIUM = 1,
   AGGRESSIVE = 2,
+  QUICK = 3,
 
   // Must be last.
-  COUNT = 3,
+  COUNT = 4,
 }
 
 // These values are persisted to logs. Entries should not be renumbered and

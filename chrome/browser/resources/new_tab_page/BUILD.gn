@@ -145,8 +145,14 @@ build_webui("build") {
   webui_context_type = "trusted"
   optimize = optimize_webui
   if (optimize) {
-    extra_grdp_files += [ "$target_gen_dir/eager_resources.grdp" ]
-    extra_grdp_deps += [ ":build_eager_grdp" ]
+    extra_grdp_files += [
+      "$target_gen_dir/eager_resources.grdp",
+      "$target_gen_dir/optimium_home_resources.grdp",
+    ]
+    extra_grdp_deps += [
+      ":build_eager_grdp",
+      ":build_optimium_home_grdp",
+    ]
     optimize_webui_host = "new-tab-page"
     optimize_webui_in_files = [
       "new_tab_page.js",
@@ -179,5 +185,29 @@ if (optimize_webui) {
     manifest_files = [ build_eager_manifest ]
     deps = [ ":build_eager" ]
     resource_path_prefix = "eager"
+  }
+}
+
+# Keep the dashboard independent from the legacy normal/eager shared chunks.
+# bundle_js supports at most two inputs; this entry needs only its own bundle.
+if (optimize_webui) {
+  optimium_home_manifest = "$target_gen_dir/optimium_home_manifest.json"
+
+  optimize_webui("build_optimium_home") {
+    host = "new-tab-page"
+    input = rebase_path("$target_gen_dir/tsc", root_build_dir)
+    js_module_in_files = [ "optimium_home.js" ]
+    out_manifest = optimium_home_manifest
+    excludes = optimize_excludes
+    external_paths = optimize_external_paths
+    deps = [ ":build_ts" ]
+  }
+
+  generate_grd("build_optimium_home_grdp") {
+    grd_prefix = "new_tab_page_optimium_home"
+    out_grd = "$target_gen_dir/optimium_home_resources.grdp"
+    manifest_files = [ optimium_home_manifest ]
+    resource_path_rewrites = [ "optimium_home.rollup.js|optimium_home.js" ]
+    deps = [ ":build_optimium_home" ]
   }
 }

@@ -3181,6 +3181,7 @@ source_set("browser") {
       "//chrome/browser/ui/views/search_engines",
       "//chrome/browser/ui/views/search_engines:impl",
       "//chrome/browser/ui/views/side_panel",
+      "//chrome/browser/ui/views/side_panel/optimium:impl",
       "//chrome/browser/ui/views/tabs/glic",
       "//chrome/browser/ui/views/tabs/glic:impl",
       "//chrome/browser/ui/views/tabs/organizer",

@@ -152,6 +152,7 @@
 #include "chrome/browser/ui/views/side_panel/bookmarks/bookmarks_side_panel_coordinator.h"
 #include "chrome/browser/ui/views/side_panel/comments/comments_side_panel_coordinator.h"
 #include "chrome/browser/ui/views/side_panel/history/history_side_panel_coordinator.h"
+#include "chrome/browser/ui/views/side_panel/optimium/soundcloud_side_panel_coordinator.h"
 #include "chrome/browser/ui/views/side_panel/history_clusters/history_clusters_side_panel_coordinator.h"
 #include "chrome/browser/ui/views/side_panel/reading_list/reading_list_side_panel_coordinator.h"
 #include "chrome/browser/ui/views/side_panel/side_panel_coordinator.h"
@@ -907,6 +908,13 @@ void BrowserWindowFeatures::InitPostWindowConstruction(
   // TODO(webium): Consider supporting additional side panels beyond reading
   // list and bookmarks.
   if (!webui_browser::IsWebUIBrowserEnabled()) {
+    if (browser_view && browser->GetType() ==
+                            BrowserWindowInterface::Type::TYPE_NORMAL) {
+      optimium_soundcloud_side_panel_coordinator_ =
+          GetUserDataFactory()
+              .CreateInstance<OptimiumSoundCloudSidePanelCoordinator>(
+                  *browser, browser);
+    }
     if (CommentsSidePanelCoordinator::IsSupported()) {
       comments_side_panel_coordinator_ =
           GetUserDataFactory().CreateInstance<CommentsSidePanelCoordinator>(
@@ -1200,6 +1208,7 @@ void BrowserWindowFeatures::TearDownPreBrowserWindowDestruction() {
   skills_ui_window_controller_.reset();
   tabs_from_other_devices_side_panel_coordinator_.reset();
   reading_list_side_panel_coordinator_.reset();
+  optimium_soundcloud_side_panel_coordinator_.reset();
   history_side_panel_coordinator_.reset();
   history_clusters_side_panel_coordinator_.reset();
   comments_side_panel_coordinator_.reset();

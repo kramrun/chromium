@@ -42,6 +42,7 @@ export function getHtml(this: SettingsMemoryPageElement) {
             pref-key="performance_tuning.high_efficiency_mode.aggressiveness">
           <div class="cr-secondary-text">
             $i18n{memorySaverModeMediumDescription}
+            · $i18n{tabDiscardTimerFourHours}
           </div>
         </controlled-radio-button>
         <controlled-radio-button id="aggressiveButton"
@@ -50,6 +51,15 @@ export function getHtml(this: SettingsMemoryPageElement) {
             pref-key="performance_tuning.high_efficiency_mode.aggressiveness">
           <div class="cr-secondary-text">
             $i18n{memorySaverModeAggressiveDescription}
+            · $i18n{tabDiscardTimerTwoHours}
+          </div>
+        </controlled-radio-button>
+        <controlled-radio-button id="quickButton"
+            label="$i18n{memorySaverModeAggressiveLabel} · $i18n{tabDiscardTimerThirtyMinutes}"
+            name="${MemorySaverModeAggressiveness.QUICK}"
+            pref-key="performance_tuning.high_efficiency_mode.aggressiveness">
+          <div class="cr-secondary-text">
+            $i18n{memorySaverModeQuickDescription}
           </div>
         </controlled-radio-button>
       </settings-radio-group>

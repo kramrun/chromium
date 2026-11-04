@@ -10,7 +10,6 @@
 #include <string>
 #include <utility>
 
-#include "base/command_line.h"
 #include "base/functional/bind.h"
 #include "base/i18n/rtl.h"
 #include "base/memory/raw_ptr.h"
@@ -29,6 +28,7 @@
 #include "chrome/browser/ui/ui_features.h"
 #include "chrome/browser/ui/views/frame/browser_frame_view.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/optimium_appearance_prefs.h"
 #include "chrome/browser/ui/views/frame/themed_background.h"
 #include "chrome/browser/ui/views/tabs/tab.h"
 #include "chrome/browser/ui/views/tabs/tab/glow_hover_controller.h"
@@ -816,9 +816,7 @@ void HorizontalTabStyleViews::PaintTabBackgroundFill(
       !tint_browser->GetProfile()->IsOffTheRecord() && native_theme &&
       native_theme->forced_colors() ==
           ui::ColorProviderKey::ForcedColors::kNone) {
-    const std::string tint = base::CommandLine::ForCurrentProcess()
-                                 ->GetSwitchValueASCII(
-                                     "linux-tab-background-tint");
+    const std::string tint = optimium::GetTabTint(tint_browser->GetProfile());
     SkColor tint_color = SK_ColorTRANSPARENT;
     if (tint == "blue") {
       tint_color = SkColorSetARGB(16, 0, 110, 255);
@@ -833,11 +831,10 @@ void HorizontalTabStyleViews::PaintTabBackgroundFill(
       // A single delayed repaint is scheduled from paint, rather than a
       // permanent timer. No more repaints are requested once the view stops
       // being painted, or the window is hidden or loses focus.
-      views::View* view = delegate_->GetView();
-      views::Widget* widget = view->GetWidget();
+      const views::View* view = delegate_->GetView();
+      const views::Widget* widget = view->GetWidget();
       const bool animate =
-          base::CommandLine::ForCurrentProcess()->HasSwitch(
-              "linux-tab-background-animation") &&
+          optimium::AnimateTabTint(tint_browser->GetProfile()) &&
           !gfx::Animation::PrefersReducedMotion() &&
           gfx::Animation::ShouldRenderRichAnimation() && widget &&
           widget->IsVisible() && widget->IsActive() && view->IsDrawn();
@@ -868,7 +865,7 @@ void HorizontalTabStyleViews::PaintTabBackgroundFill(
           tint_repaint_timer_->Start(
               FROM_HERE, base::Milliseconds(100),
               base::BindOnce([](views::View* target) { target->SchedulePaint(); },
-                             base::Unretained(view)));
+                             base::Unretained(const_cast<views::View*>(view))));
         }
       }
       // Reuse the tab hover animation for a small additional brightness.
@@ -993,7 +990,19 @@ BrowserFrameView* HorizontalTabStyleViews::GetBrowserFrameView() const {
 float HorizontalTabStyleViews::GetTopCornerRadiusForWidth(int width) const {
   // Get the width of the top of the tab by subtracting the width of the outer
   // corners.
-  const int ideal_radius = tab_style()->GetTopCornerRadius();
+  int ideal_radius = tab_style()->GetTopCornerRadius();
+#if BUILDFLAG(IS_LINUX)
+  const auto* browser = delegate_->GetBrowserWindowInterface();
+  const auto style =
+      optimium::GetTabStyle(browser ? browser->GetProfile() : nullptr);
+  if (style == "flat") {
+    ideal_radius = 2;
+  } else if (style == "compact") {
+    ideal_radius = 6;
+  } else if (style == "rounded") {
+    ideal_radius = 14;
+  }
+#endif
   const int top_width = width - ideal_radius * 2;
 
   // To maintain a round-rect appearance, ensure at least one third of the top

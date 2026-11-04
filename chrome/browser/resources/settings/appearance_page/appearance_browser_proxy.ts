@@ -8,7 +8,18 @@ import {sendWithPromise} from 'chrome://resources/js/cr.js';
 import {loadTimeData} from '../i18n_setup.js';
 // clang-format on
 
+export interface OptimiumTheme {
+  name: string;
+  dark: boolean;
+  colors: Record<string, string>;
+}
+
 export interface AppearanceBrowserProxy {
+  getOptimiumTheme(): Promise<Partial<OptimiumTheme>>;
+  applyOptimiumTheme(theme: OptimiumTheme): Promise<boolean>;
+  getOptimiumAppearanceOptions(): Promise<Record<string, string|number|boolean>>;
+  setOptimiumAppearanceOption(name: string, value: string|number|boolean): Promise<boolean>;
+
   getDefaultZoom(): Promise<number>;
   getThemeInfo(themeId: string): Promise<chrome.management.ExtensionInfo>;
 
@@ -34,6 +45,23 @@ export interface AppearanceBrowserProxy {
 }
 
 export class AppearanceBrowserProxyImpl implements AppearanceBrowserProxy {
+  getOptimiumTheme() {
+    return sendWithPromise<Partial<OptimiumTheme>>('getOptimiumTheme');
+  }
+
+  applyOptimiumTheme(theme: OptimiumTheme) {
+    return sendWithPromise<boolean>('applyOptimiumTheme', theme);
+  }
+
+  getOptimiumAppearanceOptions() {
+    return sendWithPromise<Record<string, string|number|boolean>>(
+        'getOptimiumAppearanceOptions');
+  }
+
+  setOptimiumAppearanceOption(name: string, value: string|number|boolean) {
+    return sendWithPromise<boolean>('setOptimiumAppearanceOption', name, value);
+  }
+
   getDefaultZoom(): Promise<number> {
     return chrome.settingsPrivate.getDefaultZoom();
   }

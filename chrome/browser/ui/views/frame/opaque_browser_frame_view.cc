@@ -8,7 +8,6 @@
 #include <string>
 #include <utility>
 
-#include "base/command_line.h"
 #include "base/trace_event/trace_event.h"
 #include "build/build_config.h"
 #include "build/buildflag.h"
@@ -20,6 +19,7 @@
 #include "chrome/browser/ui/views/frame/browser_widget.h"
 #include "chrome/browser/ui/views/frame/caption_button_placeholder_container.h"
 #include "chrome/browser/ui/views/frame/opaque_browser_frame_view_layout.h"
+#include "chrome/browser/ui/views/frame/optimium_appearance_prefs.h"
 #include "chrome/browser/ui/views/frame/top_container_view.h"
 #include "chrome/browser/ui/views/tab_icon_view.h"
 #include "chrome/browser/ui/views/tabs/new_tab_button.h"
@@ -641,9 +641,7 @@ bool OpaqueBrowserFrameView::GetLinuxFrameTranslucencyRequested() const {
       profile->IsOffTheRecord()) {
     return false;
   }
-  const auto value = base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-      "linux-ui-transparency");
-  return value == "85" || value == "70" || value == "50";
+  return optimium::GetPanelOpacityPercent(profile) < 100;
 }
 
 int OpaqueBrowserFrameView::GetLinuxFrameBackgroundOpacity() const {
@@ -658,15 +656,10 @@ int OpaqueBrowserFrameView::GetLinuxFrameBackgroundOpacity() const {
       !GetFrameImage().isNull() || !GetFrameOverlayImage().isNull()) {
     return 255;
   }
-  const auto value = base::CommandLine::ForCurrentProcess()->GetSwitchValueASCII(
-      "linux-ui-transparency");
-  if (value == "85") {
-    return 217;
-  }
-  if (value == "70") {
-    return 179;
-  }
-  return 128;  // The only remaining accepted value is 50.
+  return (optimium::GetPanelOpacityPercent(GetBrowserView()->GetProfile()) *
+              255 +
+          50) /
+         100;
 }
 #endif
 
@@ -712,26 +705,38 @@ void OpaqueBrowserFrameView::OnPaint(gfx::Canvas* canvas) {
     }
   }
 
-  {
-#if BUILDFLAG(IS_LINUX)
-    // Affect the frame background only. Child views, including tab text and
-    // controls, are painted separately and keep their own opacity.
-    const int opacity = GetLinuxFrameBackgroundOpacity();
-    if (opacity < 255) {
-      canvas->SaveLayerAlpha(opacity, GetLocalBounds());
-    }
-#endif
+  const auto paint_frame_border = [&]() {
     if (IsFrameCondensed()) {
       PaintMaximizedFrameBorder(canvas);
     } else {
       PaintRestoredFrameBorder(canvas);
     }
+  };
 #if BUILDFLAG(IS_LINUX)
-    if (opacity < 255) {
+  const int opacity = GetLinuxFrameBackgroundOpacity();
+  if (opacity < 255) {
+    // Only the top panel is translucent. Keep the side/bottom frame opaque,
+    // matching the opaque region advertised to the Wayland compositor.
+    const gfx::Rect top_bounds(0, 0, width(), GetTranslucentTopAreaHeight());
+    {
+      gfx::ScopedCanvas scoped(canvas);
+      canvas->ClipRect(top_bounds);
+      canvas->SaveLayerAlpha(opacity, top_bounds);
+      paint_frame_border();
       canvas->Restore();
     }
-#endif
+    {
+      gfx::ScopedCanvas scoped(canvas);
+      canvas->ClipRect(gfx::Rect(0, top_bounds.bottom(), width(),
+                                 std::max(0, height() - top_bounds.bottom())));
+      paint_frame_border();
+    }
+  } else {
+    paint_frame_border();
   }
+#else
+  paint_frame_border();
+#endif
 
   // The window icon and title are painted by their respective views.
   /* TODO(pkasting):  If this window is active, we should also draw a drop

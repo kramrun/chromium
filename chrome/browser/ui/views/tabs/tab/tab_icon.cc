@@ -4,6 +4,8 @@
 
 #include "chrome/browser/ui/views/tabs/tab/tab_icon.h"
 
+#include <optional>
+
 #include "base/check.h"
 #include "base/i18n/rtl.h"
 #include "base/memory/raw_ptr.h"
@@ -35,6 +37,7 @@
 #include "ui/gfx/animation/linear_animation.h"
 #include "ui/gfx/animation/tween.h"
 #include "ui/gfx/canvas.h"
+#include "ui/gfx/color_utils.h"
 #include "ui/gfx/favicon_size.h"
 #include "ui/gfx/image/image_skia_operations.h"
 #include "ui/gfx/paint_throbber.h"
@@ -325,10 +328,18 @@ void TabIcon::PaintDiscardRingAndIcon(gfx::Canvas* canvas,
 
   const ui::ColorProvider* color_provider = GetColorProvider();
   const views::Widget* widget = GetWidget();
-  SkColor ring_color =
-      color_provider->GetColor(widget && widget->ShouldPaintAsActive()
-                                   ? kColorTabDiscardRingFrameActive
-                                   : kColorTabDiscardRingFrameInactive);
+  const bool active_window = widget && widget->ShouldPaintAsActive();
+  const SkColor background = color_provider->GetColor(
+      active_window ? kColorTabBackgroundInactiveFrameActive
+                    : kColorTabBackgroundInactiveFrameInactive);
+  // Amber marks a tab that Memory Saver actually discarded. Select a shade
+  // for the surface and ensure it remains visible with custom themes too.
+  const SkColor amber = color_utils::IsDark(background)
+                            ? SkColorSetRGB(0xF2, 0xC5, 0x5C)
+                            : SkColorSetRGB(0x91, 0x60, 0x00);
+  const SkColor ring_color = color_utils::BlendForMinContrast(
+      amber, background, std::nullopt,
+      color_utils::kMinimumVisibleContrastRatio).color;
 
   // Painting Discard Ring
   PaintRingDottedPath(

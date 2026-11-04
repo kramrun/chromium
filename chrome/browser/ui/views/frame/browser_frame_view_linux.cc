@@ -4,10 +4,13 @@
 
 #include "chrome/browser/ui/views/frame/browser_frame_view_linux.h"
 
+#include <algorithm>
+
 #include "base/notreached.h"
 #include "chrome/browser/ui/views/chrome_layout_provider.h"
 #include "chrome/browser/ui/views/frame/browser_native_widget_aura_linux.h"
 #include "chrome/browser/ui/views/frame/browser_view.h"
+#include "chrome/browser/ui/views/frame/top_container_view.h"
 #include "ui/base/hit_test.h"
 #include "ui/base/metadata/metadata_impl_macros.h"
 #include "ui/gfx/geometry/insets_f.h"
@@ -140,11 +143,19 @@ float BrowserFrameViewLinux::GetRestoredCornerRadiusDip() const {
 
 int BrowserFrameViewLinux::GetTranslucentTopAreaHeight() const {
 #if BUILDFLAG(IS_LINUX)
-  if (GetLinuxFrameTranslucencyRequested()) {
-    // Conservatively avoid declaring any part of the surface opaque while
-    // the experiment is enabled. Other top views may extend below the frame's
-    // own paint bounds, and those bounds can change after layout.
-    return GetWidget()->GetWindowBoundsInScreen().height();
+  if (!browser_widget()->IsFullscreen() &&
+      GetLinuxFrameBackgroundOpacity() < 255) {
+    // Let the compositor skip blending the web content while preserving alpha
+    // in the title/tab and toolbar area. Convert coordinates rather than
+    // assuming a fixed toolbar height (bookmarks, DPI and tab modes change it).
+    int bottom = GetTopAreaHeight();
+    const auto* top_container = GetBrowserView()->top_container();
+    if (top_container && top_container->GetVisible()) {
+      const gfx::Point top_bottom = views::View::ConvertPointToTarget(
+          top_container, this, gfx::Point(0, top_container->height()));
+      bottom = std::max(bottom, top_bottom.y());
+    }
+    return std::clamp(bottom, 0, height());
   }
 #endif
   return 0;

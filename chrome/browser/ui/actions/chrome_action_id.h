@@ -353,6 +353,7 @@
   E(kActionSidePanelShowShoppingInsights) \
   E(kActionSidePanelShowSideSearch) \
   E(kActionSidePanelShowMerchantTrust) \
+  E(kActionSidePanelShowOptimiumSoundCloud) \
   E(kActionSidePanelShowTabsFromOtherDevices, \
     IDC_SHOW_TABS_FROM_OTHER_DEVICES_SIDE_PANEL)
 

@@ -21,6 +21,7 @@ all_ts_files = [
                  "metrics_utils.ts",
                  "new_tab_page_eager.ts",
                  "new_tab_page.ts",
+                 "optimium_home.ts",
                  "ntp_composebox.html.ts",
                  "ntp_composebox_context_menu.html.ts",
                  "ntp_composebox.ts",

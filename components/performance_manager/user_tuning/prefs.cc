@@ -76,7 +76,7 @@ MemorySaverModeAggressiveness GetCurrentMemorySaverMode(
     PrefService* pref_service) {
   int mode = pref_service->GetInteger(kMemorySaverModeAggressiveness);
   if (mode < static_cast<int>(MemorySaverModeAggressiveness::kConservative) ||
-      mode > static_cast<int>(MemorySaverModeAggressiveness::kAggressive)) {
+      mode > static_cast<int>(MemorySaverModeAggressiveness::kMaxValue)) {
     int medium_mode = static_cast<int>(MemorySaverModeAggressiveness::kMedium);
     pref_service->SetInteger(kMemorySaverModeAggressiveness, medium_mode);
     mode = medium_mode;

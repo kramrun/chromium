@@ -66,6 +66,28 @@
 
 /* Common styles for Material Design settings. */
 
+:host {
+  --cr-card-border-radius: var(--optimium-radius-lg, 20px);
+  --cr-card-shadow: none;
+  --cr-section-vertical-padding: 16px;
+}
+
+.settings-box .secondary {
+  line-height: 1.5;
+}
+
+select.md-select {
+  border-radius: var(--optimium-radius-sm, 8px);
+  max-width: 100%;
+}
+
+@media (max-width: 680px) {
+  .settings-box:has(> cr-button) {
+    flex-wrap: wrap;
+    padding-block: 12px;
+  }
+}
+
 /* Prevent action-links from being selected to avoid accidental
  * selection when trying to click it. */
 a[is=action-link] {
@@ -236,6 +258,8 @@ cr-radio-group {
 /* A settings-box is a horizontal row of text or controls within a
  * setting section (page or subpage). */
 .settings-box {
+  gap: 8px;
+  min-width: 0;
   align-items: center;
   border-top: var(--cr-separator-line);
   display: flex;

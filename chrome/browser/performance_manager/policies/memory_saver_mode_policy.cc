@@ -226,6 +226,8 @@ base::TimeDelta MemorySaverModePolicy::GetTimeBeforeDiscardForCurrentMode()
       return base::Hours(4);
     case MemorySaverModeAggressiveness::kAggressive:
       return base::Hours(2);
+    case MemorySaverModeAggressiveness::kQuick:
+      return base::Minutes(30);
   }
   NOTREACHED();
 }
@@ -237,6 +239,7 @@ int MemorySaverModePolicy::GetMaxNumRevisitsForCurrentMode() const {
     case MemorySaverModeAggressiveness::kMedium:
       return 15;
     case MemorySaverModeAggressiveness::kAggressive:
+    case MemorySaverModeAggressiveness::kQuick:
       return 15;
   }
   NOTREACHED();

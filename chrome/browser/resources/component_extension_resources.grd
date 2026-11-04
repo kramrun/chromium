@@ -12,6 +12,10 @@
   </outputs>
   <release seq="1">
     <includes>
+      <include name="IDR_OPTIMIUM_SITE_THEME_MANIFEST" file="optimium_site_theme/manifest.json" type="BINDATA" />
+      <include name="IDR_OPTIMIUM_SITE_THEME_BACKGROUND" file="optimium_site_theme/background.js" type="BINDATA" />
+      <include name="IDR_OPTIMIUM_SITE_THEME_CONTENT" file="optimium_site_theme/content.js" type="BINDATA" />
+      <include name="IDR_OPTIMIUM_SOUNDCLOUD_SURFACE" file="optimium_site_theme/soundcloud.js" type="BINDATA" />
       <include name="IDR_NETWORK_SPEECH_SYNTHESIS_JS" file="network_speech_synthesis/tts_extension.js" type="BINDATA" />
 
       <include name="IDR_NETWORK_SPEECH_SYNTHESIS_MV3_AUDIO_HTML" file="network_speech_synthesis/mv3/audio.html" type="BINDATA" />

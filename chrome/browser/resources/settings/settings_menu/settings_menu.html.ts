@@ -9,9 +9,17 @@ import type {SettingsMenuElement} from './settings_menu.js';
 export function getHtml(this: SettingsMenuElement) {
   return html`<!--_html_template_start_-->
     <div role="navigation">
+      <div class="optimium-brand">Optimium</div>
       <cr-menu-selector id="menu" selectable="a:not(#extensionsLink)"
           attr-for-selected="href" @iron-activate="${this.onIronActivate_}"
           @click="${this.onLinkClick_}" selected-attribute="selected">
+        <a role="menuitem" id="appearance" href="/appearance"
+            ?hidden="${this.shouldHideMenuItem_(this.pageVisibility_?.appearance)}"
+            class="cr-nav-menu-item">
+          <cr-icon icon="settings:palette"></cr-icon>
+          <span class="menu-label">$i18n{appearancePageTitle}</span>
+          <cr-ripple></cr-ripple>
+        </a>
         <a role="menuitem"
             id="people" href="/people"
             ?hidden="${this.shouldHideMenuItem_(this.pageVisibility_?.people)}"
@@ -58,13 +66,6 @@ export function getHtml(this: SettingsMenuElement) {
             class="cr-nav-menu-item">
           <cr-icon icon="settings20:button-magic"></cr-icon>
           <span class="menu-label">$i18n{aiPageTitle}</span>
-          <cr-ripple></cr-ripple>
-        </a>
-        <a role="menuitem" id="appearance" href="/appearance"
-            ?hidden="${this.shouldHideMenuItem_(this.pageVisibility_?.appearance)}"
-            class="cr-nav-menu-item">
-          <cr-icon icon="settings:palette"></cr-icon>
-          <span class="menu-label">$i18n{appearancePageTitle}</span>
           <cr-ripple></cr-ripple>
         </a>
         ${!this.settingsRefresh2026Enabled_ ? html`

@@ -41,6 +41,7 @@ base::MemoryLimit GetLimitForState(bool enabled,
     case MemorySaverModeAggressiveness::kMedium:
       return base::MemoryLimit::FromPercent(50);
     case MemorySaverModeAggressiveness::kAggressive:
+    case MemorySaverModeAggressiveness::kQuick:
       return base::MemoryLimit::FromPercent(25);
   }
 }

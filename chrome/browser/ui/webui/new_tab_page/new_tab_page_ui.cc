@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/webui/new_tab_page/new_tab_page_ui.h"
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <string>
@@ -11,9 +12,13 @@
 #include <utility>
 #include <vector>
 
+#include "base/base64.h"
 #include "base/command_line.h"
+#include "base/containers/flat_map.h"
 #include "base/feature_list.h"
+#include "base/functional/bind.h"
 #include "base/logging.h"
+#include "base/memory/weak_ptr.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/notreached.h"
 #include "base/strings/strcat.h"
@@ -109,6 +114,7 @@
 #include "components/prefs/pref_registry_simple.h"
 #include "components/prefs/pref_service.h"
 #include "components/search/ntp_features.h"
+#include "components/search_engines/template_url.h"
 #include "components/search_engines/template_url_service.h"
 #include "components/signin/public/identity_manager/accounts_in_cookie_jar_info.h"
 #include "components/signin/public/identity_manager/identity_manager.h"
@@ -148,9 +154,22 @@
 #include "chrome/browser/new_tab_page/modules/v2/calendar/outlook_calendar_page_handler.h"
 #include "chrome/browser/new_tab_page/modules/v2/tab_groups/tab_groups_page_handler.h"
 #include "chrome/browser/ui/browser_window.h"
+#include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
 #include "chrome/browser/ui/tabs/public/tab_features.h"
 #include "chrome/browser/ui/views/side_panel/customize_chrome/customize_chrome_utils.h"
+#include "chrome/browser/ui/views/side_panel/optimium/soundcloud_side_panel_coordinator.h"
+#include "chrome/browser/ui/webui/webui_embedding_context.h"
+#include "content/public/browser/media_session.h"
+#include "content/public/browser/web_contents_observer.h"
+#include "content/public/browser/web_ui_message_handler.h"
 #include "chrome/browser/ui/webui/new_tab_page/ntp_promo/ntp_promo_handler.h"
+#include "mojo/public/cpp/bindings/receiver.h"
+#include "services/media_session/public/cpp/media_image.h"
+#include "services/media_session/public/cpp/media_metadata.h"
+#include "services/media_session/public/cpp/media_position.h"
+#include "services/media_session/public/mojom/media_session.mojom.h"
+#include "third_party/skia/include/core/SkBitmap.h"
+#include "ui/gfx/codec/png_codec.h"
 #endif  // !BUILDFLAG(IS_ANDROID)
 
 #if !defined(OFFICIAL_BUILD)
@@ -181,6 +200,199 @@ NewTabPageUIConfig::CreateWebUIController(content::WebUI* web_ui,
 }
 
 namespace {
+
+#if !BUILDFLAG(IS_ANDROID)
+// Only the trusted new-tab WebUI receives this message. The remote music page
+// is an ordinary WebContents and has no access to this bridge.
+class OptimiumSoundCloudMessageHandler
+    : public content::WebUIMessageHandler,
+      public content::WebContentsObserver,
+      public media_session::mojom::MediaSessionObserver {
+ public:
+  void RegisterMessages() override {
+    web_ui()->RegisterMessageCallback(
+        "openOptimiumSoundCloud",
+        base::BindRepeating(&OptimiumSoundCloudMessageHandler::Open,
+                            base::Unretained(this)));
+    web_ui()->RegisterMessageCallback(
+        "getOptimiumSoundCloudState",
+        base::BindRepeating(&OptimiumSoundCloudMessageHandler::GetState,
+                            base::Unretained(this)));
+    web_ui()->RegisterMessageCallback(
+        "controlOptimiumSoundCloud",
+        base::BindRepeating(&OptimiumSoundCloudMessageHandler::Control,
+                            base::Unretained(this)));
+  }
+
+ private:
+  void OnJavascriptDisallowed() override {
+    receiver_.reset();
+    Observe(nullptr);
+    weak_factory_.InvalidateWeakPtrs();
+    artwork_.clear();
+  }
+  void WebContentsDestroyed() override {
+    receiver_.reset();
+    weak_factory_.InvalidateWeakPtrs();
+    artwork_.clear();
+  }
+  void MediaSessionInfoChanged(
+      media_session::mojom::MediaSessionInfoPtr info) override {
+    if (!info || info->hide_metadata) {
+      weak_factory_.InvalidateWeakPtrs();
+      artwork_.clear();
+    }
+  }
+  void MediaSessionMetadataChanged(
+      const std::optional<media_session::MediaMetadata>&) override {}
+  void MediaSessionActionsChanged(
+      const std::vector<media_session::mojom::MediaSessionAction>&) override {}
+  void MediaSessionPositionChanged(
+      const std::optional<media_session::MediaPosition>&) override {}
+  void MediaSessionImagesChanged(
+      const base::flat_map<media_session::mojom::MediaSessionImageType,
+                           std::vector<media_session::MediaImage>>& images) override {
+    artwork_.clear();
+    weak_factory_.InvalidateWeakPtrs();
+    const auto it =
+        images.find(media_session::mojom::MediaSessionImageType::kArtwork);
+    if (it == images.end() || it->second.empty() ||
+        !CanShowSessionMetadata()) {
+      return;
+    }
+    content::MediaSession::Get(web_contents())->GetMediaImageBitmap(
+        it->second.front(), 1, 128,
+        base::BindOnce(&OptimiumSoundCloudMessageHandler::OnArtwork,
+                       weak_factory_.GetWeakPtr()));
+  }
+  void OnArtwork(const SkBitmap& bitmap) {
+    if (!CanShowSessionMetadata()) {
+      artwork_.clear();
+      return;
+    }
+    const auto png = gfx::PNGCodec::EncodeBGRASkBitmap(bitmap, false);
+    artwork_ = png ? "data:image/png;base64," + base::Base64Encode(*png) : "";
+  }
+  bool CanShowSessionMetadata() const {
+    auto* contents = web_contents();
+    if (!contents || !contents->GetLastCommittedURL().SchemeIs("https") ||
+        !contents->GetLastCommittedURL().DomainIs("soundcloud.com")) {
+      return false;
+    }
+    auto* session = content::MediaSession::GetIfExists(contents);
+    const auto info = session ? session->GetMediaSessionInfoSync() : nullptr;
+    return info && !info->hide_metadata;
+  }
+  content::MediaSession* Session() {
+    auto* browser =
+        webui::GetBrowserWindowInterface(web_ui()->GetWebContents());
+    auto* coordinator =
+        browser ? OptimiumSoundCloudSidePanelCoordinator::From(browser) : nullptr;
+    auto* contents = coordinator ? coordinator->GetWebContents() : nullptr;
+    // The coordinator retains the page, but never create it merely to poll.
+    // Restrict control and metadata to SoundCloud, even during a navigation.
+    if (!contents || !contents->GetLastCommittedURL().SchemeIs("https") ||
+        !contents->GetLastCommittedURL().DomainIs("soundcloud.com")) {
+      receiver_.reset();
+      Observe(nullptr);
+      weak_factory_.InvalidateWeakPtrs();
+      artwork_.clear();
+      return nullptr;
+    }
+    auto* session = content::MediaSession::Get(contents);
+    if (contents != web_contents()) {
+      receiver_.reset();
+      weak_factory_.InvalidateWeakPtrs();
+      artwork_.clear();
+      Observe(contents);
+      session->AddObserver(receiver_.BindNewPipeAndPassRemote());
+    }
+    return session;
+  }
+  void GetState(const base::ListValue& args) {
+    if (args.size() != 1 || !args[0].is_string()) {
+      return;
+    }
+    AllowJavascript();
+    base::DictValue state;
+    auto* session = Session();
+    state.Set("available", false);
+    if (session) {
+      const auto info = session->GetMediaSessionInfoSync();
+      const auto actions = session->GetMediaSessionActionsSync();
+      using Action = media_session::mojom::MediaSessionAction;
+      state.Set("available",
+                info && info->is_controllable &&
+                    info->state != media_session::mojom::MediaSessionInfo::
+                                       SessionState::kInactive);
+      state.Set("playing", info && info->playback_state ==
+                                       media_session::mojom::MediaPlaybackState::kPlaying);
+      state.Set("canPlay", std::ranges::contains(actions, Action::kPlay));
+      state.Set("canPause", std::ranges::contains(actions, Action::kPause));
+      state.Set("canPrevious", std::ranges::contains(actions, Action::kPreviousTrack));
+      state.Set("canNext", std::ranges::contains(actions, Action::kNextTrack));
+      if (info && !info->hide_metadata) {
+        const auto& metadata = session->GetMediaSessionMetadata();
+        state.Set("title", base::UTF16ToUTF8(metadata.title));
+        state.Set("artist", base::UTF16ToUTF8(metadata.artist));
+        state.Set("artwork", artwork_);
+      } else {
+        weak_factory_.InvalidateWeakPtrs();
+        artwork_.clear();
+      }
+    }
+    ResolveJavascriptCallback(args[0], state);
+  }
+  void Control(const base::ListValue& args) {
+    if (args.size() != 2 || !args[0].is_string() || !args[1].is_string()) {
+      return;
+    }
+    AllowJavascript();
+    auto* session = Session();
+    bool done = false;
+    if (session) {
+      using Action = media_session::mojom::MediaSessionAction;
+      using SuspendType = media_session::mojom::MediaSession::SuspendType;
+      const auto actions = session->GetMediaSessionActionsSync();
+      const auto& command = args[1].GetString();
+      if (command == "play" && std::ranges::contains(actions, Action::kPlay)) {
+        session->Resume(SuspendType::kUI);
+        done = true;
+      } else if (command == "pause" && std::ranges::contains(actions, Action::kPause)) {
+        session->Suspend(SuspendType::kUI);
+        done = true;
+      } else if (command == "previous" && std::ranges::contains(actions, Action::kPreviousTrack)) {
+        session->PreviousTrack();
+        done = true;
+      } else if (command == "next" && std::ranges::contains(actions, Action::kNextTrack)) {
+        session->NextTrack();
+        done = true;
+      }
+    }
+    ResolveJavascriptCallback(args[0], base::Value(done));
+  }
+  void Open(const base::ListValue& args) {
+    if (args.size() != 1 || !args[0].is_string()) {
+      return;
+    }
+    AllowJavascript();
+    auto* browser = webui::GetBrowserWindowInterface(web_ui()->GetWebContents());
+    auto* coordinator =
+        browser ? OptimiumSoundCloudSidePanelCoordinator::From(browser)
+                : nullptr;
+    if (!coordinator || !coordinator->Show()) {
+      RejectJavascriptCallback(
+          args[0],
+          base::Value("Панель SoundCloud доступна в обычном окне Optimium."));
+      return;
+    }
+    ResolveJavascriptCallback(args[0], base::Value(true));
+  }
+  mojo::Receiver<media_session::mojom::MediaSessionObserver> receiver_{this};
+  std::string artwork_;
+  base::WeakPtrFactory<OptimiumSoundCloudMessageHandler> weak_factory_{this};
+};
+#endif
 
 constexpr char kPrevNavigationTimePrefName[] = "NewTabPage.PrevNavigationTime";
 // The value for the "udm" (Unified Drilldown Mode) query parameter.
@@ -944,6 +1156,22 @@ content::WebUIDataSource* CreateAndAddNewTabPageUiHtmlSource(
   source->AddLocalizedStrings(
       NewTabPageUI::GetLoadTimeData(profile, session_allows_drag_and_drop));
 
+  // The dashboard submits only on user action, using the profile's selected
+  // search provider. No remote suggestions or AI modules are instantiated.
+  std::string optimium_search_url;
+  auto* search_service = TemplateURLServiceFactory::GetForProfile(profile);
+  const auto* provider = search_service->GetDefaultSearchProvider();
+  if (provider) {
+    TemplateURLRef::SearchTermsArgs args(u"OPTIMIUMQUERY");
+    GURL search_url(provider->url_ref().ReplaceSearchTerms(
+        args, search_service->search_terms_data()));
+    if (search_url.SchemeIsHTTPOrHTTPS()) {
+      optimium_search_url = search_url.spec();
+    }
+  }
+  source->AddString("optimiumSearchUrl", optimium_search_url);
+
+
   webui::SetupWebUIDataSource(source, kNewTabPageResources,
                               IDR_NEW_TAB_PAGE_NEW_TAB_PAGE_HTML);
 
@@ -979,6 +1207,15 @@ content::WebUIDataSource* CreateAndAddNewTabPageUiHtmlSource(
                          google_base_url.spec().c_str(),
                          chrome::kChromeUIUntrustedNewTabPageUrl,
                          chrome::kChromeUIUntrustedNtpMicrosoftAuthURL));
+  // Optional dashboard widgets have a narrow allowlist. They are disabled
+  // until the user explicitly enables them; no remote scripts run in WebUI.
+  source->OverrideContentSecurityPolicy(
+      network::mojom::CSPDirectiveName::FrameSrc,
+      "frame-src https://w.soundcloud.com chrome-untrusted://new-tab-page "
+      "chrome-untrusted://ntp-microsoft-auth;");
+  source->OverrideContentSecurityPolicy(
+      network::mojom::CSPDirectiveName::ConnectSrc,
+      "connect-src 'self';");
   source->OverrideContentSecurityPolicy(
       network::mojom::CSPDirectiveName::MediaSrc,
       "media-src blob: data: 'self';");
@@ -1037,6 +1274,10 @@ NewTabPageUI::NewTabPageUI(content::WebUI* web_ui)
           ntp::MakeModuleIdDetails(NewTabPageUI::IsManagedProfile(profile_),
                                    profile_)) {
 
+#if !BUILDFLAG(IS_ANDROID)
+  web_ui->AddMessageHandler(
+      std::make_unique<OptimiumSoundCloudMessageHandler>());
+#endif
   instance_count_++;
   base::UmaHistogramCounts100("NewTabPage.Count", instance_count_);
   bool session_allows_drag_and_drop = false;

@@ -1195,11 +1195,14 @@ source_set("custom_corners_background_impl") {
   public_deps = [ ":custom_corners_background" ]
   deps = [
     ":browser_frame_view",
+    ":browser_native_widget",
     ":browser_widget",
     ":custom_corners",
     ":custom_floating_corner",
+    ":optimium_appearance_prefs",
     ":safe_invoke",
     ":themed_background",
+    ":top_container_view",
     "//base",
     "//base:i18n",
     "//build:buildflag_header_h",
@@ -1207,6 +1210,7 @@ source_set("custom_corners_background_impl") {
     "//chrome/browser/ui/color:color_headers",
     "//chrome/browser/ui/color:mixers",
     "//chrome/browser/ui/views/frame:browser_view_header",
+    "//chrome/browser/ui/views/toolbar",
     "//skia",
     "//ui/base",
     "//ui/color:color_headers",
@@ -2625,6 +2629,7 @@ if (is_linux) {
       ":browser_desktop_window_tree_host",
       ":browser_frame_view_linux",
       ":browser_native_widget_aura_linux",
+      ":optimium_appearance_prefs",
       ":safe_invoke",
       "//base",
       "//build:buildflag_header_h",
@@ -2636,9 +2641,11 @@ if (is_linux) {
       "//chrome/browser/ui/views/tabs:tab_strip",
       "//chrome/browser/ui/views/tabs/dragging",
       "//third_party/abseil-cpp:absl",
+      "//ui/aura",
       "//ui/base:features",
       "//ui/base/dragdrop/mojom",
       "//ui/base/mojom:ui_base_types",
+      "//ui/compositor",
       "//ui/gfx/geometry",
       "//ui/linux:linux_ui",
       "//ui/ozone",
@@ -2672,6 +2679,7 @@ if (is_linux) {
     ]
     deps = [
       ":browser_native_widget_aura_linux",
+      ":top_container_view",
       "//base:i18n",
       "//build:buildflag_header_h",
       "//chrome/browser/ui/views:layout_provider",
@@ -2782,6 +2790,7 @@ if (!is_chromeos) {
       ":browser_widget",
       ":caption_button_placeholder_container",
       ":opaque_browser_frame_view_layout",
+      ":optimium_appearance_prefs",
       ":top_container_view",
       "//base",
       "//build:buildflag_header_h",
@@ -3340,4 +3349,14 @@ source_set("browser_widget_impl") {
   if (is_win) {
     deps += [ "//media" ]
   }
+}
+
+# Shared native appearance preferences; no WebUI or extension dependency.
+source_set("optimium_appearance_prefs") {
+  public = [ "optimium_appearance_prefs.h" ]
+  public_deps = [
+    "//base",
+    "//chrome/browser/profiles:profile",
+    "//components/prefs",
+  ]
 }
