@@ -4,6 +4,7 @@
 
 #include "chrome/browser/ui/webui/new_tab_page/new_tab_page_ui.h"
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <string>
@@ -13,7 +14,6 @@
 
 #include "base/base64.h"
 #include "base/command_line.h"
-#include "base/containers/contains.h"
 #include "base/containers/flat_map.h"
 #include "base/feature_list.h"
 #include "base/functional/bind.h"
@@ -314,7 +314,7 @@ class OptimiumSoundCloudMessageHandler
       return;
     }
     AllowJavascript();
-    base::Value::Dict state;
+    base::DictValue state;
     auto* session = Session();
     state.Set("available", false);
     if (session) {
@@ -327,10 +327,10 @@ class OptimiumSoundCloudMessageHandler
                                        SessionState::kInactive);
       state.Set("playing", info && info->playback_state ==
                                        media_session::mojom::MediaPlaybackState::kPlaying);
-      state.Set("canPlay", base::Contains(actions, Action::kPlay));
-      state.Set("canPause", base::Contains(actions, Action::kPause));
-      state.Set("canPrevious", base::Contains(actions, Action::kPreviousTrack));
-      state.Set("canNext", base::Contains(actions, Action::kNextTrack));
+      state.Set("canPlay", std::ranges::contains(actions, Action::kPlay));
+      state.Set("canPause", std::ranges::contains(actions, Action::kPause));
+      state.Set("canPrevious", std::ranges::contains(actions, Action::kPreviousTrack));
+      state.Set("canNext", std::ranges::contains(actions, Action::kNextTrack));
       if (info && !info->hide_metadata) {
         const auto& metadata = session->GetMediaSessionMetadata();
         state.Set("title", base::UTF16ToUTF8(metadata.title));
@@ -355,16 +355,16 @@ class OptimiumSoundCloudMessageHandler
       using SuspendType = media_session::mojom::MediaSession::SuspendType;
       const auto actions = session->GetMediaSessionActionsSync();
       const auto& command = args[1].GetString();
-      if (command == "play" && base::Contains(actions, Action::kPlay)) {
+      if (command == "play" && std::ranges::contains(actions, Action::kPlay)) {
         session->Resume(SuspendType::kUI);
         done = true;
-      } else if (command == "pause" && base::Contains(actions, Action::kPause)) {
+      } else if (command == "pause" && std::ranges::contains(actions, Action::kPause)) {
         session->Suspend(SuspendType::kUI);
         done = true;
-      } else if (command == "previous" && base::Contains(actions, Action::kPreviousTrack)) {
+      } else if (command == "previous" && std::ranges::contains(actions, Action::kPreviousTrack)) {
         session->PreviousTrack();
         done = true;
-      } else if (command == "next" && base::Contains(actions, Action::kNextTrack)) {
+      } else if (command == "next" && std::ranges::contains(actions, Action::kNextTrack)) {
         session->NextTrack();
         done = true;
       }
