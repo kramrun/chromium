@@ -67,7 +67,9 @@ class SoundCloudPanelView
   METADATA_HEADER(SoundCloudPanelView, views::View)
 
  public:
-  explicit SoundCloudPanelView(BrowserWindowInterface* browser)
+  SoundCloudPanelView(BrowserWindowInterface* browser,
+                      content::WebContents* contents,
+                      bool first_open)
       : browser_(browser) {
     SetBackground(views::CreateSolidBackground(kColorToolbar));
     auto* layout = SetLayoutManager(std::make_unique<views::BoxLayout>(
@@ -95,7 +97,7 @@ class SoundCloudPanelView
     open_in_tab->SetPreferredSize(gfx::Size(36, 36));
     toolbar->AddChildView(std::move(open_in_tab));
     origin_label_ = AddChildView(std::make_unique<views::Label>(
-        u"m.soundcloud.com · Закрытие панели останавливает музыку"));
+        u"m.soundcloud.com"));
     origin_label_->SetHorizontalAlignment(gfx::ALIGN_LEFT);
     origin_label_->SetMultiLine(true);
     origin_label_->SetAllowCharacterBreak(true);
@@ -104,9 +106,20 @@ class SoundCloudPanelView
         AddChildView(std::make_unique<views::WebView>(browser->GetProfile()));
     layout->SetFlexForView(web_view_, 1);
     SetAcceleratorHandling(views::WebContentsAcceleratorHandling::kEnabled);
-    auto* contents = web_view_->GetWebContents(GURL(kLibraryUrl));
+    web_view_->SetWebContents(contents);
     contents->SetDelegate(this);
     Observe(contents);
+    if (!first_open) {
+      const GURL& url = contents->GetLastCommittedURL();
+      if (url.is_valid()) {
+        origin_label_->SetText(
+            base::UTF8ToUTF16(url::Origin::Create(url).Serialize()));
+        origin_label_->SetTooltipText(base::UTF8ToUTF16(url.spec()));
+      }
+      web_modal::WebContentsModalDialogManager::FromWebContents(contents)
+          ->SetDelegate(this);
+      return;
+    }
     webui::SetBrowserWindowInterface(contents, browser);
     PrefsTabHelper::CreateForWebContents(contents);
     permissions::PermissionRequestManager::CreateForWebContents(contents);
@@ -138,7 +151,6 @@ class SoundCloudPanelView
     Observe(nullptr);
     web_modal::WebContentsModalDialogManager::FromWebContents(contents)
         ->SetDelegate(nullptr);
-    webui::SetBrowserWindowInterface(contents, nullptr);
     contents->SetDelegate(nullptr);
   }
 
@@ -239,8 +251,7 @@ class SoundCloudPanelView
     }
     const GURL& url = navigation->GetURL();
     origin_label_->SetText(
-        base::UTF8ToUTF16(url::Origin::Create(url).Serialize()) +
-        u" · Закрытие панели останавливает музыку");
+        base::UTF8ToUTF16(url::Origin::Create(url).Serialize()));
     origin_label_->SetTooltipText(base::UTF8ToUTF16(url.spec()));
   }
 
@@ -306,6 +317,9 @@ OptimiumSoundCloudSidePanelCoordinator::
     entry->RemoveObserver(this);
     registry->Deregister(key);
   }
+  if (contents_) {
+    webui::SetBrowserWindowInterface(contents_.get(), nullptr);
+  }
 }
 
 // static
@@ -324,15 +338,26 @@ bool OptimiumSoundCloudSidePanelCoordinator::Show() {
   return true;
 }
 
+content::WebContents*
+OptimiumSoundCloudSidePanelCoordinator::GetWebContents() const {
+  return contents_.get();
+}
+
 std::unique_ptr<views::View> OptimiumSoundCloudSidePanelCoordinator::CreateView(
     SidePanelEntryScope& scope) {
-  return std::make_unique<SoundCloudPanelView>(browser_);
+  const bool first_open = !contents_;
+  if (first_open) {
+    content::WebContents::CreateParams params(browser_->GetProfile());
+    contents_ = content::WebContents::Create(params);
+  }
+  return std::make_unique<SoundCloudPanelView>(browser_, contents_.get(),
+                                               first_open);
 }
 
 void OptimiumSoundCloudSidePanelCoordinator::OnEntryHidden(
     SidePanelEntry* entry) {
-  // Closing the panel or switching to another side panel stops music and
-  // releases the page. Merely switching browser tabs leaves this window-scoped
-  // panel open. No site processes or network requests exist before first use.
+  // Discard the transient view; the window-owned WebContents survives so its
+  // page and media session can continue while the panel is hidden. No site
+  // process or network request is created until the panel is first opened.
   entry->ClearCachedView();
 }

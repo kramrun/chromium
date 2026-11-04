@@ -14,6 +14,9 @@
 class BrowserWindowInterface;
 class SidePanelEntry;
 class SidePanelEntryScope;
+namespace content {
+class WebContents;
+}
 namespace views {
 class View;
 }
@@ -30,12 +33,18 @@ class OptimiumSoundCloudSidePanelCoordinator : public SidePanelEntryObserver {
   static OptimiumSoundCloudSidePanelCoordinator* From(
       BrowserWindowInterface* browser);
   bool Show();
+  // Null until the panel has first been opened. The returned pointer is
+  // borrowed and is destroyed with this browser window.
+  content::WebContents* GetWebContents() const;
 
  private:
   std::unique_ptr<views::View> CreateView(SidePanelEntryScope& scope);
   void OnEntryHidden(SidePanelEntry* entry) override;
 
   const raw_ptr<BrowserWindowInterface> browser_;
+  // Owned by the window, not by the transient panel view. A hidden panel must
+  // not destroy the page (and interrupt a playing track).
+  std::unique_ptr<content::WebContents> contents_;
   ui::ScopedUnownedUserData<OptimiumSoundCloudSidePanelCoordinator>
       scoped_unowned_user_data_;
 };

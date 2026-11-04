@@ -24,6 +24,10 @@ const ICONS: {[key: string]: string} = {
   plus: 'M12 5v14 M5 12h14',
   link: 'M10 13a5 5 0 0 0 7 .5l3-3a5 5 0 0 0-7-7l-2 2 M14 11a5 5 0 0 0-7-.5l-3 3a5 5 0 0 0 7 7l2-2',
   music: 'M9 18V5l12-2v13 M9 5v4l12-2 M9 18a3 3 0 1 1-6 0 3 3 0 0 1 6 0 M21 16a3 3 0 1 1-6 0 3 3 0 0 1 6 0',
+  previous: 'M6 5v14 M19 5 8 12l11 7z',
+  next: 'M18 5v14 M5 5l11 7-11 7z',
+  play: 'm8 5 11 7-11 7z',
+  pause: 'M8 5v14 M16 5v14',
   video: 'M9 8l7 4-7 4z M3 5h18v14H3z',
   code: 'm8 6-6 6 6 6 M16 6l6 6-6 6 M14 4l-4 16',
   book: 'M4 3h7v18H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2 M11 3h9a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-9 M6 7h2 M6 11h2 M15 7h3 M15 11h3',
@@ -71,10 +75,15 @@ interface HomeConfig {
   weatherEnabled: boolean;
   city: string;
   soundcloudEnabled: boolean;
+  soundcloudMiniEnabled: boolean;
   soundcloudUrl: string;
   shortcuts: Shortcut[];
 }
 interface WeatherData {city: string; label: string; temperature: number; code: number; time: number;}
+interface SoundcloudState {
+  available: boolean; playing: boolean; canPlay: boolean; canPause: boolean;
+  canPrevious: boolean; canNext: boolean; title: string; artist: string; artwork: string;
+}
 function defaults(): HomeConfig {
   return {
     version: 1, hero: 'clock', heading: 'Fuck proprietary!', showHeading: true,
@@ -82,7 +91,7 @@ function defaults(): HomeConfig {
     clockWeatherStyle: 'display', showDate: true, compact: false,
     radius: 24, searchLayoutVersion: 2, searchWidth: 584, surfaceOpacity: 76,
     searchPlaceholder: 'Поиск или адрес сайта', showHistory: true,
-    weatherEnabled: false, city: '', soundcloudEnabled: false,
+    weatherEnabled: false, city: '', soundcloudEnabled: false, soundcloudMiniEnabled: true,
     soundcloudUrl: '', shortcuts: [],
   };
 }
@@ -118,7 +127,7 @@ function normalizeConfig(value: unknown): HomeConfig {
       out[key] = v[key] as ClockStyle;
     }
   }
-  for (const key of ['showHeading', 'clock24', 'showDate', 'compact', 'showHistory', 'weatherEnabled', 'soundcloudEnabled'] as const) {
+  for (const key of ['showHeading', 'clock24', 'showDate', 'compact', 'showHistory', 'weatherEnabled', 'soundcloudEnabled', 'soundcloudMiniEnabled'] as const) {
     if (typeof v[key] === 'boolean') { out[key] = v[key]; }
   }
   out.heading = textValue(v['heading'], out.heading, 160);
@@ -160,6 +169,7 @@ class OptimiumHome extends LitElement {
     history: {type: Array, state: true}, historyOpen: {type: Boolean, state: true}, drawerOpen: {type: Boolean, state: true},
     status: {type: String, state: true}, weather: {type: Object, state: true}, weatherLoading: {type: Boolean, state: true},
     soundcloudOpening: {type: Boolean, state: true},
+    soundcloudState: {type: Object, state: true},
   };
   private accessor config = readConfig();
   private accessor time = new Date();
@@ -171,6 +181,9 @@ class OptimiumHome extends LitElement {
   private accessor weather: WeatherData|null = null;
   private accessor weatherLoading = false;
   private accessor soundcloudOpening = false;
+  private accessor soundcloudState: SoundcloudState|null = null;
+  private soundcloudTimer = 0;
+  private soundcloudPolling = false;
   private timer = 0;
   private weatherRequest: AbortController|null = null;
   private readonly onStorage = (event: StorageEvent) => {
@@ -258,6 +271,14 @@ class OptimiumHome extends LitElement {
     .weather-value { font-size: 42px; line-height: 1.2; font-variant-numeric: tabular-nums; }
     .widget p { margin: 8px 0; }
     .widget small, small { color: var(--muted); font-size: 12px; line-height: 1.5; }
+    .mini-player { display: flex; align-items: center; gap: 12px; }
+    .mini-art { width: 56px; height: 56px; flex: none; border-radius: 10px; object-fit: cover; background: var(--surface); }
+    .mini-info { min-width: 0; flex: 1; }
+    .mini-info strong, .mini-info span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .mini-info span { font-size: 13px; color: var(--muted); }
+    .mini-controls { display: flex; align-items: center; gap: 2px; }
+    .mini-controls button { width: 38px; height: 38px; border: 0; padding: 8px; background: transparent; border-radius: 50%; }
+    .mini-controls button:hover:not(:disabled) { background: var(--surface); }
     .widget a { color: var(--muted); }
     iframe { width: 100%; height: 166px; border: 0; border-radius: 12px; background: transparent; }
     footer { display: flex; justify-content: center; flex-wrap: wrap; gap: 24px; padding: 16px; }
@@ -313,6 +334,8 @@ class OptimiumHome extends LitElement {
     this.timer = window.setInterval(() => {
       if (!document.hidden) { this.time = new Date(); }
     }, 15000);
+    this.soundcloudTimer = window.setInterval(() => { void this.refreshSoundcloud(); }, 2000);
+    void this.refreshSoundcloud();
     window.addEventListener('storage', this.onStorage);
     document.addEventListener('visibilitychange', this.onVisibility);
     void this.updateWeather();
@@ -320,6 +343,7 @@ class OptimiumHome extends LitElement {
   override disconnectedCallback() {
     super.disconnectedCallback();
     window.clearInterval(this.timer);
+    window.clearInterval(this.soundcloudTimer);
     this.weatherRequest?.abort();
     window.removeEventListener('storage', this.onStorage);
     document.removeEventListener('visibilitychange', this.onVisibility);
@@ -339,7 +363,7 @@ class OptimiumHome extends LitElement {
     this.save({[key]: (event.target as HTMLInputElement).value});
     if (key === 'city' && this.config.weatherEnabled) { void this.updateWeather(true); }
   }
-  private setCheck(key: 'showHeading'|'showDate'|'clock24'|'compact'|'showHistory'|'weatherEnabled'|'soundcloudEnabled', event: Event) {
+  private setCheck(key: 'showHeading'|'showDate'|'clock24'|'compact'|'showHistory'|'weatherEnabled'|'soundcloudEnabled'|'soundcloudMiniEnabled', event: Event) {
     this.save({[key]: (event.target as HTMLInputElement).checked});
     if (key === 'weatherEnabled') { void this.updateWeather(); }
   }
@@ -539,6 +563,41 @@ class OptimiumHome extends LitElement {
       this.soundcloudOpening = false;
     }
   }
+  private async refreshSoundcloud() {
+    if (!this.config.soundcloudMiniEnabled || document.hidden || this.soundcloudPolling) { return; }
+    this.soundcloudPolling = true;
+    try {
+      this.soundcloudState = await sendWithPromise<SoundcloudState>('getOptimiumSoundCloudState');
+    } catch {
+      this.soundcloudState = null;
+    } finally {
+      this.soundcloudPolling = false;
+    }
+  }
+  private async controlSoundcloud(action: 'previous'|'play'|'pause'|'next') {
+    try {
+      const handled = await sendWithPromise<boolean>('controlOptimiumSoundCloud', action);
+      if (!handled) { this.status = 'Это действие сейчас недоступно в SoundCloud.'; }
+      await this.refreshSoundcloud();
+    } catch {
+      this.status = 'Не удалось управлять воспроизведением SoundCloud.';
+    }
+  }
+  private soundcloudMiniPlayer() {
+    const state = this.soundcloudState;
+    return html`<article class="widget" aria-label="Мини-плеер SoundCloud">
+      <div class="mini-player">
+        ${state?.artwork ? html`<img class="mini-art" src=${state.artwork} alt="">` : nothing}
+        <div class="mini-info"><strong>${state?.title || 'SoundCloud'}</strong><span>${state?.artist || (state?.available ? 'Выбери музыку в медиатеке' : 'Открой медиатеку и включи музыку')}</span></div>
+        <div class="mini-controls">
+          <button aria-label="Предыдущий трек" ?disabled=${!state?.canPrevious} @click=${() => this.controlSoundcloud('previous')}>${icon('previous')}</button>
+          <button aria-label=${state?.playing ? 'Пауза' : 'Воспроизвести'} ?disabled=${state?.playing ? !state.canPause : !state?.canPlay} @click=${() => this.controlSoundcloud(state?.playing ? 'pause' : 'play')}>${icon(state?.playing ? 'pause' : 'play')}</button>
+          <button aria-label="Следующий трек" ?disabled=${!state?.canNext} @click=${() => this.controlSoundcloud('next')}>${icon('next')}</button>
+        </div>
+      </div>
+      <button class="quiet" @click=${() => this.openSoundcloudPanel()}>Открыть медиатеку</button>
+    </article>`;
+  }
   private addShortcut(event: SubmitEvent) {
     event.preventDefault();
     const form = event.target as HTMLFormElement;
@@ -579,7 +638,7 @@ class OptimiumHome extends LitElement {
     try { localStorage.removeItem(HISTORY_KEY); } catch {}
     this.status = 'История поиска этой страницы очищена.';
   }
-  private check(label: string, key: 'showHeading'|'showDate'|'clock24'|'compact'|'showHistory'|'weatherEnabled'|'soundcloudEnabled') {
+  private check(label: string, key: 'showHeading'|'showDate'|'clock24'|'compact'|'showHistory'|'weatherEnabled'|'soundcloudEnabled'|'soundcloudMiniEnabled') {
     return html`<label class="check"><input type="checkbox" .checked=${this.config[key]} @change=${(e: Event) => this.setCheck(key, e)}>${label}</label>`;
   }
   private range(label: string, key: 'radius'|'searchWidth'|'surfaceOpacity', min: number, max: number, unit: string) {
@@ -629,6 +688,8 @@ class OptimiumHome extends LitElement {
         <h2>SoundCloud</h2>
         <button class="icon-button" ?disabled=${this.soundcloudOpening} @click=${() => this.openSoundcloudPanel()}>${icon('music')}Открыть медиатеку</button>
         <p class="notice">Аккаунт и сохранённая музыка — в боковой панели SoundCloud. Вход выполняется на самом SoundCloud.</p>
+        ${this.check('Мини-плеер медиатеки на главной', 'soundcloudMiniEnabled')}
+        <p class="notice">Управление зависит от возможностей, которые SoundCloud предоставляет текущему треку.</p>
         <details><summary>Плеер трека на новой вкладке</summary>
         <label class="field"><span>Ссылка на трек или плейлист SoundCloud</span><input type="url" maxlength="2048" .value=${this.config.soundcloudUrl} placeholder="https://soundcloud.com/…" @change=${(e: Event) => {
           const value = (e.target as HTMLInputElement).value.trim();
@@ -660,8 +721,9 @@ class OptimiumHome extends LitElement {
           ${this.historyOpen && this.config.showHistory && matches.length ? html`<div class="history"><p>История поиска на этой странице</p>${matches.map(value => html`<button @click=${() => this.navigate(value)}>${icon('history')}<span>${value}</span></button>`)}</div>` : nothing}
         </div>
         <section class="shortcuts" aria-label="Ярлыки">${this.config.shortcuts.map(s => html`<a class="shortcut" href=${s.url}>${icon(s.icon)}<span>${s.name}</span></a>`)}<button class="shortcut" @click=${() => this.openDrawer()}>${icon('plus')}<span>Добавить</span></button></section>
-        ${showWeatherWidget || (this.config.soundcloudEnabled && this.config.soundcloudUrl) ? html`<section class="widgets">
+        ${showWeatherWidget || (this.config.soundcloudMiniEnabled && this.soundcloudState?.available) || (this.config.soundcloudEnabled && this.config.soundcloudUrl) ? html`<section class="widgets">
           ${showWeatherWidget ? html`<article class="widget"><h2>${icon('cloud')}Погода</h2>${this.weatherContent()}</article>` : nothing}
+          ${this.config.soundcloudMiniEnabled && this.soundcloudState?.available ? this.soundcloudMiniPlayer() : nothing}
           ${this.config.soundcloudEnabled && this.config.soundcloudUrl ? html`<article class="widget"><h2>${icon('music')}SoundCloud</h2><iframe title="Плеер SoundCloud" src=${this.playerUrl()} loading="lazy" referrerpolicy="no-referrer" sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox"></iframe></article>` : nothing}
         </section>` : nothing}
       </main>
