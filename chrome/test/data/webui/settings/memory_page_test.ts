@@ -90,6 +90,7 @@ suite('MemorySaverAggressiveness', function() {
   let conservativeButton: HTMLElement;
   let mediumButton: HTMLElement;
   let aggressiveButton: HTMLElement;
+  let quickButton: HTMLElement;
   let radioGroup: SettingsRadioGroupElement;
   let radioGroupCollapse: CrCollapseElement;
   let prefsBrowserProxy: TestPrefsBrowserProxy;
@@ -128,6 +129,7 @@ suite('MemorySaverAggressiveness', function() {
     conservativeButton = getMemoryPageElement('conservativeButton');
     mediumButton = getMemoryPageElement('mediumButton');
     aggressiveButton = getMemoryPageElement('aggressiveButton');
+    quickButton = getMemoryPageElement('quickButton');
     radioGroup = getMemoryPageElement('radioGroup');
     radioGroupCollapse = getMemoryPageElement('radioGroupCollapse');
   });
@@ -189,6 +191,9 @@ suite('MemorySaverAggressiveness', function() {
         aggressiveButton, MemorySaverModeAggressiveness.AGGRESSIVE);
 
     await testMemorySaverModeChangeAggressiveness(
+        quickButton, MemorySaverModeAggressiveness.QUICK);
+
+    await testMemorySaverModeChangeAggressiveness(
         conservativeButton, MemorySaverModeAggressiveness.CONSERVATIVE);
 
     await testMemorySaverModeChangeAggressiveness(
@@ -223,5 +228,8 @@ suite('MemorySaverAggressiveness', function() {
 
     await assertMemorySaverModeAggressivenessPolicyIndicatorExists(
         MemorySaverModeAggressiveness.AGGRESSIVE, aggressiveButton);
+
+    await assertMemorySaverModeAggressivenessPolicyIndicatorExists(
+        MemorySaverModeAggressiveness.QUICK, quickButton);
   });
 });

@@ -24,6 +24,43 @@ def cgroup_path(unit):
     return Path('/sys/fs/cgroup') / group.lstrip('/')
 
 
+def classify_process(argv, comm):
+    """Classify without retaining command lines, which may contain URLs or secrets.
+
+    Unknown is intentional: OS process names and Firefox's subprocess arguments
+    differ between releases and cannot always be mapped reliably.
+    """
+    args = argv.replace(b'\0', b' ').decode('utf-8', 'replace').split()
+    for arg in args:
+        if arg.startswith('--type='):
+            kind = arg.partition('=')[2]
+            return {'gpu-process': 'gpu', 'renderer': 'renderer',
+                    'utility': 'utility', 'zygote': 'zygote',
+                    'broker': 'broker'}.get(kind, 'chromium:' + kind)
+    name = comm.lower()
+    if '-contentproc' in args:
+        # Gecko's final argument indicates its subprocess type. The /proc comm
+        # is more descriptive for web and extension content on Linux.
+        if 'extension' in name:
+            return 'extension'
+        for token, kind in [('gpu', 'gpu'), ('socket', 'socket'),
+                            ('rdd', 'media'), ('utility', 'utility'),
+                            ('forkserver', 'forkserver'), ('tab', 'renderer')]:
+            if args and args[-1].lower() == token:
+                return kind
+        if 'web content' in name or 'web co' in name:
+            return 'renderer'
+        return 'firefox:unknown-child'
+    if name in ('firefox', 'firefox-bin', 'chrome', 'optimium'):
+        return 'browser'
+    return 'unknown'
+
+
+def process_start(pid):
+    # stat's parenthesized comm can contain spaces and parentheses.
+    return int((Path('/proc') / str(pid) / 'stat').read_text().rsplit(')', 1)[1].split()[19])
+
+
 def sample(group):
     pids = set()
     for f in [group / 'cgroup.procs', *group.glob('**/cgroup.procs')]:
@@ -31,21 +68,38 @@ def sample(group):
             pids.update(int(p) for p in f.read_text().split())
         except (OSError, ValueError):
             pass
-    pss = swap = 0
     read = []
     missing = []
+    details = []
     for pid in sorted(pids):
         try:
-            lines = (Path('/proc') / str(pid) / 'smaps_rollup').read_text().splitlines()
+            proc = Path('/proc') / str(pid)
+            start = process_start(pid)
+            argv = (proc / 'cmdline').read_bytes()
+            comm = (proc / 'comm').read_text().strip()
+            lines = (proc / 'smaps_rollup').read_text().splitlines()
             values = {line.split(':', 1)[0]: int(line.split()[1]) for line in lines
                       if line.startswith(('Pss:', 'SwapPss:'))}
-            pss += values['Pss']
-            swap += values.get('SwapPss', 0)
+            entry = {'pid': pid, 'start_ticks': start,
+                     'type': classify_process(argv, comm),
+                     'pss_kib': values['Pss'], 'swap_pss_kib': values.get('SwapPss', 0)}
+            if process_start(pid) != start:
+                raise ValueError('Process identity changed during sampling')
+            details.append(entry)
             read.append(pid)
         except (OSError, ValueError, KeyError, IndexError):
             missing.append(pid)
-    return {'pss_kib': pss, 'swap_pss_kib': swap, 'processes_read': len(read),
-            'pids': read, 'unreadable_or_exited_pids': missing}
+    by_type = {}
+    for entry in details:
+        total = by_type.setdefault(entry['type'], {'processes': 0, 'pss_kib': 0, 'swap_pss_kib': 0})
+        total['processes'] += 1
+        total['pss_kib'] += entry['pss_kib']
+        total['swap_pss_kib'] += entry['swap_pss_kib']
+    return {'pss_kib': sum(p['pss_kib'] for p in details),
+            'swap_pss_kib': sum(p['swap_pss_kib'] for p in details),
+            'processes_read': len(read), 'pids': read,
+            'process_details': details, 'by_type': by_type,
+            'unreadable_or_exited_pids': missing}
 
 
 def main():

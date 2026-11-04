@@ -1249,6 +1249,9 @@
     <message name="IDS_SETTINGS_PERFORMANCE_MEMORY_SAVER_MODE_AGGRESSIVE_DESCRIPTION" desc="Description for the aggressive memory saver aggressiveness option">
       Get maximum memory savings. Your tabs become inactive after a shorter period of time.
     </message>
+    <message name="IDS_SETTINGS_PERFORMANCE_MEMORY_SAVER_MODE_QUICK_DESCRIPTION" desc="Warning for the 30-minute memory saver option. Explain that discarded tabs reload when revisited, and silent videos might be discarded.">
+      Discarded tabs reload when you return to them. Videos playing without sound may be discarded.
+    </message>
     <message name="IDS_SETTINGS_PERFORMANCE_TAB_DISCARDING_EXCEPTIONS_ADD_BUTTON_ARIA_LABEL" desc="Accessibility label which will be read by screen readers when focusing the tab discarding exceptions list add button. Sites added to the list will not be discarded by memory saver.">
       Add to the "always keep these sites active" list
     </message>

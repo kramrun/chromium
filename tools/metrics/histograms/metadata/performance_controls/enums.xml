@@ -112,6 +112,7 @@ chromium-metrics-reviews@google.com.
   <int value="0" label="Conservative"/>
   <int value="1" label="Medium"/>
   <int value="2" label="Aggressive"/>
+  <int value="3" label="Quick"/>
 </enum>
 
 <enum name="MemorySaverModeExceptionListAction">

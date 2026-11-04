@@ -158,6 +158,20 @@ def collect(scopes, server):
             'processes_read': len(pids), 'pids': sorted(pids),
             'unreadable_or_exited_pids': missing,
             'cgroups': [str(group) for group in groups]}
+    details = sorted((detail for sample in samples for detail in sample['process_details']),
+                     key=lambda detail: detail['pid'])
+    by_type = {}
+    for detail in details:
+        # The exact-profile root is authoritative even when Linux's comm is
+        # something generic such as MainThread.
+        if detail['pid'] in roots:
+            detail['type'] = 'browser'
+        totals = by_type.setdefault(detail['type'],
+                                    {'processes': 0, 'pss_kib': 0, 'swap_pss_kib': 0})
+        totals['processes'] += 1
+        totals['pss_kib'] += detail['pss_kib']
+        totals['swap_pss_kib'] += detail['swap_pss_kib']
+    item.update({'process_details': details, 'by_type': by_type})
     live_missing = [pid for pid in missing if Path(f'/proc/{pid}').exists()]
     fixture = server.snapshot()
     roots_after = scopes.refresh()

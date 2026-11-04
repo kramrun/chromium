@@ -29,6 +29,14 @@ TEST_F(MemorySaverModePrefMigrationTest, MemorySaverDefaultsEnabledAggressive) {
             MemorySaverModeAggressiveness::kAggressive);
 }
 
+TEST_F(MemorySaverModePrefMigrationTest, QuickModeIsPreservedWhenSelected) {
+  pref_service_.SetInteger(
+      kMemorySaverModeAggressiveness,
+      static_cast<int>(MemorySaverModeAggressiveness::kQuick));
+  EXPECT_EQ(GetCurrentMemorySaverMode(&pref_service_),
+            MemorySaverModeAggressiveness::kQuick);
+}
+
 TEST_F(MemorySaverModePrefMigrationTest, NoChangeToUserSetNewPref) {
   // The old pref is set by the user, but so is the new pref so no migration
   // should happen.

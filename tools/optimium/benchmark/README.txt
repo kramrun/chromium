@@ -92,3 +92,13 @@ background scheduling follows each browser's ordinary defaults. Do not combine
 these results with earlier visible-window runs. No headless browser mode or
 software-rendering flag is used; rendering stays native Wayland/GPU. The wrapper
 requires a live Niri session and leaves a metadata JSON and private config backup.
+
+Process breakdown
+
+Each sample now includes process_details (PID, process start ticks, inferred
+type, PSS and SwapPSS) and by_type totals. Totals are sums of the same reads
+used for the overall PSS, not a second snapshot. Unknown classifications are
+kept, never dropped. Firefox types are best-effort and can differ between
+versions; the labels alone do not prove the source of an allocation. Full
+command lines, profile paths from argv, and page URLs are not saved in this
+breakdown. Missing or replaced live processes invalidate the sample as before.

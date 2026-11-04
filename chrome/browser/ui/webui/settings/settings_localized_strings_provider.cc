@@ -1313,6 +1313,8 @@ void AddPerformanceStrings(content::WebUIDataSource* html_source) {
        IDS_SETTINGS_PERFORMANCE_MEMORY_SAVER_MODE_MEDIUM_DESCRIPTION},
       {"memorySaverModeAggressiveDescription",
        IDS_SETTINGS_PERFORMANCE_MEMORY_SAVER_MODE_AGGRESSIVE_DESCRIPTION},
+      {"memorySaverModeQuickDescription",
+       IDS_SETTINGS_PERFORMANCE_MEMORY_SAVER_MODE_QUICK_DESCRIPTION},
       {"batteryPageTitle", IDS_SETTINGS_PERFORMANCE_BATTERY_PAGE_TITLE},
       {"batterySaverModeLabel",
        IDS_SETTINGS_PERFORMANCE_BATTERY_SAVER_MODE_SETTING},

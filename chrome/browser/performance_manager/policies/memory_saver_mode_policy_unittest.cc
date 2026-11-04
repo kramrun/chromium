@@ -25,6 +25,7 @@ namespace {
 constexpr base::TimeDelta AGGRESSIVE_TIMEOUT = base::Hours(2);
 constexpr base::TimeDelta MEDIUM_TIMEOUT = base::Hours(4);
 constexpr base::TimeDelta CONSERVATIVE_TIMEOUT = base::Hours(6);
+constexpr base::TimeDelta QUICK_TIMEOUT = base::Minutes(30);
 }  // namespace
 
 class TestTabRevisitTracker : public TabRevisitTracker {
@@ -156,6 +157,33 @@ TEST_F(MemorySaverModeTest, DiscardAfterAggressiveTimeout) {
   ::testing::Mock::VerifyAndClearExpectations(discarder());
 }
 
+TEST_F(MemorySaverModeTest, DiscardAfterQuickTimeout) {
+  page_node()->SetIsVisible(true);
+  policy()->SetMode(user_tuning::prefs::MemorySaverModeAggressiveness::kQuick);
+  policy()->OnMemorySaverModeChanged(true);
+  EXPECT_EQ(policy()->GetTimeBeforeDiscardForTesting(), QUICK_TIMEOUT);
+
+  page_node()->SetIsVisible(false);
+  EXPECT_CALL(*discarder(), DiscardPageNodeImpl(page_node())).Times(0);
+  task_env().FastForwardBy(QUICK_TIMEOUT - base::Seconds(1));
+  ::testing::Mock::VerifyAndClearExpectations(discarder());
+  EXPECT_CALL(*discarder(), DiscardPageNodeImpl(page_node()))
+      .WillOnce(::testing::Return(true));
+  task_env().FastForwardBy(base::Seconds(1));
+  ::testing::Mock::VerifyAndClearExpectations(discarder());
+}
+
+TEST_F(MemorySaverModeTest, QuickModeDoesNotDiscardPlayingAudio) {
+  page_node()->SetIsVisible(true);
+  policy()->SetMode(user_tuning::prefs::MemorySaverModeAggressiveness::kQuick);
+  policy()->OnMemorySaverModeChanged(true);
+  page_node()->SetIsAudible(true);
+  page_node()->SetIsVisible(false);
+  EXPECT_CALL(*discarder(), DiscardPageNodeImpl(page_node())).Times(0);
+  task_env().FastForwardBy(QUICK_TIMEOUT);
+  ::testing::Mock::VerifyAndClearExpectations(discarder());
+}
+
 TEST_F(MemorySaverModeTest, DiscardAfterConservativeTimeout) {
   EXPECT_EQ(page_node()->GetType(), PageType::kTab);
   page_node()->SetIsVisible(true);
@@ -185,7 +213,7 @@ TEST_F(MemorySaverModeTest, DontDiscardAfterBackgroundedIfSuspended) {
   ::testing::Mock::VerifyAndClearExpectations(discarder());
 
   // Advance only one hour, there should still not be a discard.
-  task_env().FastForwardBy(base::Hours(1));
+  task_env().FastForwardBy(MEDIUM_TIMEOUT / 2);
   ::testing::Mock::VerifyAndClearExpectations(discarder());
 
   // Suspend again for more than the expected time, no discard should happen.
@@ -197,7 +225,7 @@ TEST_F(MemorySaverModeTest, DontDiscardAfterBackgroundedIfSuspended) {
 
   // Finally advance un-suspended until the time is elapsed, the tab should be
   // discarded.
-  task_env().FastForwardBy(MEDIUM_TIMEOUT - base::Hours(1));
+  task_env().FastForwardBy(MEDIUM_TIMEOUT / 2);
   ::testing::Mock::VerifyAndClearExpectations(discarder());
 }
 
