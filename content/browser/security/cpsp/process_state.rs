@@ -4,12 +4,15 @@
 
 chromium::import! {
     "//base:feature";
+    "//base:file_path";
+    "//net/base:filename_util";
     "//content/common:common_id_types";
     "//url:url_rust";
 }
 
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::ffi::OsString;
 
 use common_id_types::ChildProcessId;
 use cxx::UniquePtr;
@@ -21,6 +24,7 @@ use crate::ChildProcessSecurityPolicyImpl;
 pub(crate) mod ffi {
     #![allow(unsafe_code)]
     unsafe extern "C++" {
+        include!("base/files/file_path.h");
         include!("content/public/common/child_process_id.h");
         include!("content/browser/process_lock.h");
         include!("content/browser/process_lock_shim.h");
@@ -33,6 +37,9 @@ pub(crate) mod ffi {
 
         #[namespace = ""]
         type GURL = super::url_rust::gurl::ffi::GURL;
+
+        #[namespace = "base"]
+        type FilePath = super::file_path::ffi::FilePath;
 
         #[namespace = "url"]
         type Origin = super::url_rust::origin::ffi::Origin;
@@ -96,6 +103,13 @@ pub(crate) mod ffi {
 
         fn grant_commit_scheme(child_id: ChildProcessId, scheme: &str);
         fn grant_request_scheme(child_id: ChildProcessId, scheme: &str);
+
+        fn grant_request_of_specific_file(child_id: ChildProcessId, path: &FilePath);
+        fn revoke_request_of_specific_file(child_id: ChildProcessId, path: &FilePath);
+        fn can_request_url(child_id: ChildProcessId, url: &GURL, can_request: &mut bool) -> bool;
+
+        // Checks only per-process grants; C++ performs all outer URL checks.
+        fn can_commit_url(child_id: ChildProcessId, url: &GURL, can_commit: &mut bool) -> bool;
 
         #[cfg(IS_CHROMEOS)]
         fn grant_request_of_external_file_url(child_id: ChildProcessId, url: &GURL);
@@ -198,6 +212,42 @@ fn grant_request_scheme(child_id: ChildProcessId, scheme: &str) {
     let mut cpsp = ChildProcessSecurityPolicyImpl::get_locked_instance();
     if let Some(state) = cpsp.process_states.get_mut(&child_id) {
         state.grant_request_scheme(scheme);
+    }
+}
+
+fn grant_request_of_specific_file(child_id: ChildProcessId, path: &ffi::FilePath) {
+    let mut cpsp = ChildProcessSecurityPolicyImpl::get_locked_instance();
+    if let Some(state) = cpsp.process_states.get_mut(&child_id) {
+        state.0.request_file_set.insert(path.to_path_buf().into_os_string());
+    }
+}
+
+fn revoke_request_of_specific_file(child_id: ChildProcessId, path: &ffi::FilePath) {
+    let mut cpsp = ChildProcessSecurityPolicyImpl::get_locked_instance();
+    if let Some(state) = cpsp.process_states.get_mut(&child_id) {
+        state.0.request_file_set.remove(path.to_path_buf().as_os_str());
+    }
+}
+
+fn can_request_url(child_id: ChildProcessId, url: &ffi::GURL, can_request: &mut bool) -> bool {
+    let cpsp = ChildProcessSecurityPolicyImpl::get_locked_instance();
+    match cpsp.process_states.get_for_query(&child_id) {
+        Some(state) => {
+            *can_request = state.can_request_url(url);
+            true
+        }
+        None => false,
+    }
+}
+
+fn can_commit_url(child_id: ChildProcessId, url: &ffi::GURL, can_commit: &mut bool) -> bool {
+    let cpsp = ChildProcessSecurityPolicyImpl::get_locked_instance();
+    match cpsp.process_states.get_for_query(&child_id) {
+        Some(state) => {
+            *can_commit = state.can_commit_url(url);
+            true
+        }
+        None => false,
     }
 }
 
@@ -483,6 +533,7 @@ pub(crate) struct ProcessState {
     request_externalfile_set: BTreeSet<UniquePtr<ffi::GURL>>,
     #[cfg(IS_CHROMEOS)]
     commit_externalfile_set: BTreeSet<UniquePtr<ffi::GURL>>,
+    request_file_set: HashSet<OsString>,
     /// Whether a child process can host WebUI pages with bindings.
     has_web_ui_bindings: bool,
     /// The set of origins in Android WebView and <webview> tags that are
@@ -510,6 +561,7 @@ impl ProcessState {
             request_externalfile_set: BTreeSet::new(),
             #[cfg(IS_CHROMEOS)]
             commit_externalfile_set: BTreeSet::new(),
+            request_file_set: HashSet::new(),
             has_web_ui_bindings: false,
             webview_origin_exemption_set: BTreeSet::new(),
             midi_permission: MidiPermission::CannotSendMidi,
@@ -524,9 +576,6 @@ impl ProcessState {
         self.origin_map.get(origin) == Some(&CommitRequestPolicy::CommitAndRequest)
     }
 
-    // TODO(crbug.com/522872468): Call from `ProcessState::can_request_url` once
-    // ported to Rust.
-    #[allow(dead_code)]
     fn can_request_origin(&self, origin: &UniquePtr<ffi::Origin>) -> bool {
         // Anything in `origin_map` must have at least request permissions.
         self.origin_map.contains_key(origin)
@@ -536,17 +585,36 @@ impl ProcessState {
         self.scheme_map.get(scheme) == Some(&CommitRequestPolicy::CommitAndRequest)
     }
 
-    // TODO(crbug.com/522872468): Call from `ProcessState::can_request_url` once
-    // ported to Rust.
-    #[allow(dead_code)]
     fn can_request_scheme(&self, scheme: &str) -> bool {
         // Anything in `scheme_map` must have at least request permissions.
         self.scheme_map.contains_key(scheme)
     }
 
-    // TODO(crbug.com/522872468): Call from the top-level `can_commit_url` and
-    // `ProcessState::can_request_url` once ported to Rust.
-    #[allow(dead_code)]
+    fn can_request_url(&self, url: &ffi::GURL) -> bool {
+        debug_assert!(!url.scheme_is_blob() && !url.scheme_is_filesystem());
+        if self.can_request_scheme(url.scheme())
+            || self.can_request_origin(&url_rust::origin::ffi::create_origin_from_gurl(url))
+        {
+            return true;
+        }
+        if url.scheme_is("file") {
+            if let Some(path) = filename_util::file_url_to_file_path(url) {
+                return self.request_file_set.contains(path.to_path_buf().as_os_str());
+            }
+        }
+        #[cfg(target_os = "android")]
+        if url.scheme_is("content") {
+            return self
+                .request_file_set
+                .contains(std::ffi::OsStr::new(url.possibly_invalid_spec()));
+        }
+        #[cfg(IS_CHROMEOS)]
+        if url.scheme_is("externalfile") {
+            return self.request_externalfile_set.contains(&ffi::normalize_external_file_url(url));
+        }
+        self.can_commit_url(url)
+    }
+
     fn can_commit_url(&self, url: &ffi::GURL) -> bool {
         debug_assert!(
             !url.scheme_is_blob() && !url.scheme_is_filesystem(),

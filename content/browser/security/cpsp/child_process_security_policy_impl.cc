@@ -1255,6 +1255,7 @@ void ChildProcessSecurityPolicyImpl::Add(ChildProcessId child_id) {
   CHECK_CURRENTLY_ON(BrowserThread::UI, base::NotFatalUntil::M159);
   CHECK(child_id, base::NotFatalUntil::M159);
 
+  base::AutoLock lock(lock_);
   if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {
     rust::child_process_security_policy::create_state_for_process(child_id);
   }
@@ -1270,7 +1271,6 @@ void ChildProcessSecurityPolicyImpl::Add(ChildProcessId child_id) {
   // Rust, this would only be able to early-return here if/when the
   // ProcessState lifetime management is moved over to Rust.
 
-  base::AutoLock lock(lock_);
   process_states_.CreateStateForProcess(child_id);
 }
 
@@ -1305,6 +1305,7 @@ void ChildProcessSecurityPolicyImpl::Remove(ChildProcessId child_id) {
   CHECK_CURRENTLY_ON(BrowserThread::UI, base::NotFatalUntil::M159);
   CHECK(child_id, base::NotFatalUntil::M159);
 
+  base::AutoLock lock(lock_);
   if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {
     rust::child_process_security_policy::prepare_to_remove_state(child_id);
   }
@@ -1319,7 +1320,6 @@ void ChildProcessSecurityPolicyImpl::Remove(ChildProcessId child_id) {
   // only be able to early-return here if/when the ProcessState lifetime
   // management is moved over to Rust.
 
-  base::AutoLock lock(lock_);
   process_states_.PrepareToRemoveState(child_id);
 }
 
@@ -1515,6 +1515,10 @@ void ChildProcessSecurityPolicyImpl::GrantRequestOfSpecificFile(
   // against (crbug.com/382645162), except android content:// URLs.
 #if BUILDFLAG(IS_ANDROID)
   if (path.IsContentUri()) {
+    if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {
+      rust::child_process_security_policy::grant_request_of_specific_file(
+          child_id, path.StripTrailingSeparators());
+    }
     state->GrantRequestOfSpecificFile(path);
     return;
   }
@@ -1522,6 +1526,10 @@ void ChildProcessSecurityPolicyImpl::GrantRequestOfSpecificFile(
   GURL url = net::FilePathToFileURL(path);
   base::FilePath canonical_path;
   if (net::FileURLToFilePath(url, &canonical_path)) {
+    if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {
+      rust::child_process_security_policy::grant_request_of_specific_file(
+          child_id, canonical_path.StripTrailingSeparators());
+    }
     state->GrantRequestOfSpecificFile(canonical_path);
   }
 }
@@ -1530,15 +1538,8 @@ void ChildProcessSecurityPolicyImpl::GrantRequestOfSpecificFile(
 void ChildProcessSecurityPolicyImpl::GrantRequestOfExternalFileUrl(
     ChildProcessId child_id,
     const GURL& url) {
-  if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {
-    rust::child_process_security_policy::grant_request_of_external_file_url(
-        child_id, url);
-  }
-
-  // Note: We explicitly continue with C++ state update as well even when in
-  // Rust-only mode, since ProcessState::CanRequestURL has not yet been
-  // implemented in Rust. Once it is supported in Rust, this should be combined
-  // into a RUST_CPP_PROCESS_STATE_VOID_FUNCTION call.
+  // Continue updating C++ state in Rust-only mode: other checks still use it,
+  // and it is the fallback after Rust state is released before IO cleanup.
   GrantRequestOfExternalFileUrl_Cpp(child_id, url);
 }
 
@@ -1550,6 +1551,11 @@ void ChildProcessSecurityPolicyImpl::GrantRequestOfExternalFileUrl_Cpp(
   }
 
   base::AutoLock lock(lock_);
+  if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {
+    rust::child_process_security_policy::grant_request_of_external_file_url(
+        child_id, url);
+  }
+
   auto* state = process_states_.GetProcessStateForMutation(child_id);
   if (!state) {
     return;
@@ -1561,16 +1567,8 @@ void ChildProcessSecurityPolicyImpl::GrantRequestOfExternalFileUrl_Cpp(
 void ChildProcessSecurityPolicyImpl::GrantCommitOfExternalFileUrl(
     ChildProcessId child_id,
     const GURL& url) {
-  if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {
-    rust::child_process_security_policy::grant_commit_of_external_file_url(
-        child_id, url);
-  }
-
-  // Note: We explicitly continue with C++ state update as well even when in
-  // Rust-only mode, since ProcessState::CanCommitURL and
-  // ProcessState::CanRequestURL have not yet been implemented in Rust. Once
-  // they are supported in Rust, this should be combined into a
-  // RUST_CPP_PROCESS_STATE_VOID_FUNCTION call.
+  // Continue updating C++ state in Rust-only mode: other checks still use it,
+  // and it is the fallback after Rust state is released before IO cleanup.
   GrantCommitOfExternalFileUrl_Cpp(child_id, url);
 }
 
@@ -1582,6 +1580,11 @@ void ChildProcessSecurityPolicyImpl::GrantCommitOfExternalFileUrl_Cpp(
   }
 
   base::AutoLock lock(lock_);
+  if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {
+    rust::child_process_security_policy::grant_commit_of_external_file_url(
+        child_id, url);
+  }
+
   auto* state = process_states_.GetProcessStateForMutation(child_id);
   if (!state) {
     return;
@@ -1636,6 +1639,10 @@ void ChildProcessSecurityPolicyImpl::RevokeAllPermissionsForFile(
   base::AutoLock lock(lock_);
 
   if (auto* state = process_states_.GetProcessStateForMutation(child_id)) {
+    if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {
+      rust::child_process_security_policy::revoke_request_of_specific_file(
+          child_id, file.StripTrailingSeparators());
+    }
     state->RevokeAllPermissionsForFile(file);
   }
 }
@@ -1730,21 +1737,47 @@ void ChildProcessSecurityPolicyImpl::GrantSendMidiSysExMessage_Cpp(
   }
 }
 
+bool ChildProcessSecurityPolicyImpl::CanRequestURLRustProcessStateForTesting(
+    ChildProcessId child_id,
+    const GURL& url) {
+  base::AutoLock lock(lock_);
+  bool can_request = false;
+  return rust::child_process_security_policy::can_request_url(
+             child_id, url, can_request) &&
+         can_request;
+}
+
+bool ChildProcessSecurityPolicyImpl::CanRequestURLCppProcessStateForTesting(
+    ChildProcessId child_id,
+    const GURL& url) {
+  base::AutoLock lock(lock_);
+  const auto* state = process_states_.GetProcessStateForQuery(child_id);
+  return state && state->CanRequestURL(url);
+}
+
+bool ChildProcessSecurityPolicyImpl::CanCommitURLRustProcessStateForTesting(
+    ChildProcessId child_id,
+    const GURL& url) {
+  base::AutoLock lock(lock_);
+  bool can_commit = false;
+  return rust::child_process_security_policy::can_commit_url(
+             child_id, url, can_commit) &&
+         can_commit;
+}
+
+bool ChildProcessSecurityPolicyImpl::CanCommitURLCppProcessStateForTesting(
+    ChildProcessId child_id,
+    const GURL& url) {
+  base::AutoLock lock(lock_);
+  const auto* state = process_states_.GetProcessStateForQuery(child_id);
+  return state && state->CanCommitURL(url);
+}
+
 void ChildProcessSecurityPolicyImpl::GrantCommitOrigin(
     int child_id,
     const url::Origin& origin) {
-  if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {
-    rust::child_process_security_policy::grant_commit_origin(
-        ChildProcessId::FromUnsafeValue(child_id),
-        // Make a copy for Rust to own.
-        std::make_unique<url::Origin>(origin));
-  }
-
-  // Note: We explicitly continue with C++ state update as well even when in
-  // Rust-only mode, since ProcessState::CanCommitURL and
-  // ProcessState::CanRequestURL have not yet been implemented in Rust. Once
-  // they are supported in Rust, this should be combined into a
-  // RUST_CPP_PROCESS_STATE_VOID_FUNCTION call.
+  // Continue updating C++ state in Rust-only mode: other checks still use it,
+  // and it is the fallback after Rust state is released before IO cleanup.
   GrantCommitOrigin_Cpp(child_id, origin);
 }
 
@@ -1752,6 +1785,12 @@ void ChildProcessSecurityPolicyImpl::GrantCommitOrigin_Cpp(
     int child_id,
     const url::Origin& origin) {
   base::AutoLock lock(lock_);
+  if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {
+    rust::child_process_security_policy::grant_commit_origin(
+        ChildProcessId::FromUnsafeValue(child_id),
+        // Make a copy for Rust to own.
+        std::make_unique<url::Origin>(origin));
+  }
 
   // TODO(crbug.com/379869738) Remove FromUnsafeValue.
   if (auto* state = process_states_.GetProcessStateForMutation(
@@ -1763,18 +1802,8 @@ void ChildProcessSecurityPolicyImpl::GrantCommitOrigin_Cpp(
 void ChildProcessSecurityPolicyImpl::GrantRequestOrigin(
     int child_id,
     const url::Origin& origin) {
-  if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {
-    rust::child_process_security_policy::grant_request_origin(
-        ChildProcessId::FromUnsafeValue(child_id),
-        // Make a copy for Rust to own.
-        std::make_unique<url::Origin>(origin));
-  }
-
-  // Note: We explicitly continue with C++ state update as well even when in
-  // Rust-only mode, since ProcessState::CanCommitURL and
-  // ProcessState::CanRequestURL have not yet been implemented in Rust. Once
-  // they are supported in Rust, this should be combined into a
-  // RUST_CPP_PROCESS_STATE_VOID_FUNCTION call.
+  // Continue updating C++ state in Rust-only mode: other checks still use it,
+  // and it is the fallback after Rust state is released before IO cleanup.
   GrantRequestOrigin_Cpp(child_id, origin);
 }
 
@@ -1782,6 +1811,12 @@ void ChildProcessSecurityPolicyImpl::GrantRequestOrigin_Cpp(
     int child_id,
     const url::Origin& origin) {
   base::AutoLock lock(lock_);
+  if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {
+    rust::child_process_security_policy::grant_request_origin(
+        ChildProcessId::FromUnsafeValue(child_id),
+        // Make a copy for Rust to own.
+        std::make_unique<url::Origin>(origin));
+  }
 
   // TODO(crbug.com/379869738) Remove FromUnsafeValue.
   if (auto* state = process_states_.GetProcessStateForMutation(
@@ -1793,16 +1828,8 @@ void ChildProcessSecurityPolicyImpl::GrantRequestOrigin_Cpp(
 void ChildProcessSecurityPolicyImpl::GrantCommitScheme(
     int child_id,
     const std::string& scheme) {
-  if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {
-    rust::child_process_security_policy::grant_commit_scheme(
-        ChildProcessId::FromUnsafeValue(child_id), scheme);
-  }
-
-  // Note: We explicitly continue with C++ state update as well even when in
-  // Rust-only mode, since ProcessState::CanCommitURL and
-  // ProcessState::CanRequestURL have not yet been implemented in Rust. Once
-  // they are supported in Rust, this should be combined into a
-  // RUST_CPP_PROCESS_STATE_VOID_FUNCTION call.
+  // Continue updating C++ state in Rust-only mode: other checks still use it,
+  // and it is the fallback after Rust state is released before IO cleanup.
   GrantCommitScheme_Cpp(child_id, scheme);
 }
 
@@ -1810,6 +1837,10 @@ void ChildProcessSecurityPolicyImpl::GrantCommitScheme_Cpp(
     int child_id,
     const std::string& scheme) {
   base::AutoLock lock(lock_);
+  if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {
+    rust::child_process_security_policy::grant_commit_scheme(
+        ChildProcessId::FromUnsafeValue(child_id), scheme);
+  }
 
   // TODO(crbug.com/379869738) Remove FromUnsafeValue.
   if (auto* state = process_states_.GetProcessStateForMutation(
@@ -1821,16 +1852,8 @@ void ChildProcessSecurityPolicyImpl::GrantCommitScheme_Cpp(
 void ChildProcessSecurityPolicyImpl::GrantRequestScheme(
     int child_id,
     const std::string& scheme) {
-  if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {
-    rust::child_process_security_policy::grant_request_scheme(
-        ChildProcessId::FromUnsafeValue(child_id), scheme);
-  }
-
-  // Note: We explicitly continue with C++ state update as well even when in
-  // Rust-only mode, since ProcessState::CanCommitURL and
-  // ProcessState::CanRequestURL have not yet been implemented in Rust. Once
-  // they are supported in Rust, this should be combined into a
-  // RUST_CPP_PROCESS_STATE_VOID_FUNCTION call.
+  // Continue updating C++ state in Rust-only mode: other checks still use it,
+  // and it is the fallback after Rust state is released before IO cleanup.
   GrantRequestScheme_Cpp(child_id, scheme);
 }
 
@@ -1838,6 +1861,10 @@ void ChildProcessSecurityPolicyImpl::GrantRequestScheme_Cpp(
     int child_id,
     const std::string& scheme) {
   base::AutoLock lock(lock_);
+  if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {
+    rust::child_process_security_policy::grant_request_scheme(
+        ChildProcessId::FromUnsafeValue(child_id), scheme);
+  }
 
   // TODO(crbug.com/379869738) Remove FromUnsafeValue.
   if (auto* state = process_states_.GetProcessStateForMutation(
@@ -1962,7 +1989,28 @@ bool ChildProcessSecurityPolicyImpl::CanRequestURL(ChildProcessId child_id,
     if (auto* state = process_states_.GetProcessStateForQuery(child_id)) {
       // Otherwise, we consult the child process's security state to see if it
       // is allowed to request the URL.
-      if (state->CanRequestURL(url)) {
+#if BUILDFLAG(IS_WIN)
+      const bool request_allowed = state->CanRequestURL(url);
+#else
+      // FilePath compares Windows drive letters case-insensitively. Rust's
+      // OsString set does not; retain C++ until their behavior is reconciled.
+      const auto policy = GetRustPolicy(CpspRustFeature::kProcessState);
+      bool request_allowed = false;
+      bool rust_state_found = false;
+      if (IsRustEnabled(policy)) {
+        rust_state_found = rust::child_process_security_policy::can_request_url(
+            child_id, url, request_allowed);
+      }
+      // C++ can outlive Rust state until deferred IO-thread cleanup.
+      if (!rust_state_found || policy == RustPolicy::kRustAndCpp) {
+        const bool cpp_result = state->CanRequestURL(url);
+        if (rust_state_found) {
+          CHECK_EQ(request_allowed, cpp_result);
+        }
+        request_allowed = cpp_result;
+      }
+#endif  // BUILDFLAG(IS_WIN)
+      if (request_allowed) {
         return true;
       }
     } else {
@@ -2133,7 +2181,24 @@ bool ChildProcessSecurityPolicyImpl::CanCommitURL(ChildProcessId child_id,
 
     // Otherwise, we consult the child process's security state to see if it is
     // allowed to commit the URL.
-    bool can_commit = state->CanCommitURL(url);
+    // Hold lock_ while reading both representations. Permission grants and
+    // lifecycle changes take lock_ before acquiring the Rust state mutex.
+    const RustPolicy policy = GetRustPolicy(CpspRustFeature::kProcessState);
+    bool can_commit = false;
+    bool rust_state_found = false;
+    if (IsRustEnabled(policy)) {
+      rust_state_found = rust::child_process_security_policy::can_commit_url(
+          child_id, url, can_commit);
+    }
+    // Rust releases its state when the last handle is dropped. C++ keeps
+    // state alive a little longer for tasks already queued on the IO thread.
+    if (!rust_state_found || policy == RustPolicy::kRustAndCpp) {
+      const bool cpp_can_commit = state->CanCommitURL(url);
+      if (rust_state_found) {
+        CHECK_EQ(can_commit, cpp_can_commit);
+      }
+      can_commit = cpp_can_commit;
+    }
     if (!can_commit) {
       LogCanCommitUrlFailureReason("cpsp_state_cannot_commit_url");
     }
@@ -4656,9 +4721,8 @@ void ChildProcessSecurityPolicyImpl::ProcessStateMaps::RemoveProcessReference(
   // RenderProcessHost and CPSP Handles to know when it's safe to remove the
   // ProcessState on the Rust side.
   //
-  // Similarly to Add(), we avoid an early return here in Rust-only mode and
-  // allow the C++ cleanup code to complete, since Rust doesn't yet support
-  // everything in ProcessState.
+  // Rust state is released at the last reference, while C++ retains it until
+  // deferred IO-thread cleanup. Queries in that interval use the C++ state.
   if (IsRustEnabled(GetRustPolicy(CpspRustFeature::kProcessState))) {
     rust::child_process_security_policy::complete_pending_state_removal(
         child_id);

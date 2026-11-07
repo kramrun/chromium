@@ -341,6 +341,17 @@ class CONTENT_EXPORT ChildProcessSecurityPolicyImpl
   // TODO(crbug.com/379869738): Remove this method when usages are ported.
   bool CanCommitURL(int child_id, const GURL& url);
 
+  // Compare the per-process Rust and C++ permission maps in tests. These do
+  // not implement the additional checks performed by CanCommitURL().
+  bool CanRequestURLRustProcessStateForTesting(ChildProcessId child_id,
+                                              const GURL& url);
+  bool CanRequestURLCppProcessStateForTesting(ChildProcessId child_id,
+                                             const GURL& url);
+  bool CanCommitURLRustProcessStateForTesting(ChildProcessId child_id,
+                                               const GURL& url);
+  bool CanCommitURLCppProcessStateForTesting(ChildProcessId child_id,
+                                              const GURL& url);
+
   // Valid blob URLs should contain canonically serialized origins. See
   // https://crbug.com/40085381.
   static bool IsMalformedBlobUrl(const GURL& url);

@@ -96,6 +96,7 @@ rust_static_library("child_process_security_policy_impl") {
     "//base:file_path",
     "//base:unguessable_token",
     "//content/common:common_id_types",
+    "//net/base:filename_util",
     "//storage/common:storage_common_rust",
     "//third_party/blink/public/common",
     "//third_party/rust/cxx/v1:lib",

@@ -3,6 +3,7 @@
 // found in the LICENSE file.
 
 #include <algorithm>
+#include <atomic>
 #include <memory>
 #include <optional>
 #include <set>
@@ -21,6 +22,9 @@
 #include "base/test/mock_log.h"
 #include "base/test/scoped_command_line.h"
 #include "base/test/scoped_feature_list.h"
+#include "base/test/scoped_run_loop_timeout.h"
+#include "base/threading/thread_restrictions.h"
+#include "base/time/time.h"
 #include "build/build_config.h"
 #include "content/browser/isolated_origin_util.h"
 #include "content/browser/origin_agent_cluster_isolation_state.h"
@@ -410,6 +414,365 @@ TEST_P(ChildProcessSecurityPolicyTest, IsPseudoSchemeTest) {
   EXPECT_FALSE(p->IsPseudoScheme(kChromeUIScheme));
 
   p->ClearRegisteredSchemeForTesting("registered-pseudo-scheme");
+}
+
+TEST_P(ChildProcessSecurityPolicyTest, RustProcessStateCommitURLParity) {
+  if (std::get<0>(GetParam()) == RustPolicy::kCppOnly ||
+      !IsRustProcessStateEnabled()) {
+    GTEST_SKIP() << "Rust process state is disabled for this configuration";
+  }
+
+  auto* policy = ChildProcessSecurityPolicyImpl::GetInstance();
+  MockRenderProcessHost process(browser_context());
+  const auto child_id = process.GetID();
+  const int legacy_id = process.GetDeprecatedID();
+
+  const GURL first("https://example.test/page");
+  const GURL same_origin("https://example.test/another");
+  const GURL other_port("https://example.test:8443/page");
+  const GURL other_host("https://other.test/page");
+  const GURL custom("custom-scheme://example.test/page");
+  const GURL local_file("file:///tmp/example");
+  const GURL opaque("data:text/plain,hello");
+
+  auto expect_permission = [&](const GURL& url, bool expected) {
+    SCOPED_TRACE(url.spec());
+    EXPECT_EQ(expected, policy->CanCommitURLCppProcessStateForTesting(child_id, url));
+    EXPECT_EQ(expected, policy->CanCommitURLRustProcessStateForTesting(child_id, url));
+  };
+
+  for (const GURL* url : {&first, &other_port, &other_host, &custom,
+                          &local_file, &opaque}) {
+    expect_permission(*url, false);
+  }
+
+  // Request permission alone does not permit committing a document.
+  policy->GrantRequestOrigin(legacy_id, url::Origin::Create(first));
+  policy->GrantRequestScheme(legacy_id, "custom-scheme");
+  expect_permission(first, false);
+  expect_permission(custom, false);
+
+  policy->GrantCommitOrigin(legacy_id, url::Origin::Create(first));
+  expect_permission(first, true);
+  expect_permission(same_origin, true);
+  expect_permission(other_port, false);
+  expect_permission(other_host, false);
+  // A later request grant must not downgrade an existing commit grant.
+  policy->GrantRequestOrigin(legacy_id, url::Origin::Create(first));
+  expect_permission(first, true);
+
+  policy->GrantCommitScheme(legacy_id, "custom-scheme");
+  expect_permission(custom, true);
+  expect_permission(GURL("custom-scheme://other.test/"), true);
+  policy->GrantRequestScheme(legacy_id, "custom-scheme");
+  expect_permission(custom, true);
+
+  // Opaque origins do not acquire permission merely by being granted.
+  policy->GrantCommitOrigin(legacy_id, url::Origin::Create(opaque));
+  expect_permission(opaque, false);
+  expect_permission(local_file, false);
+
+#if BUILDFLAG(IS_CHROMEOS)
+  // External file grants are URL-specific and ignore query strings and
+  // fragments. Request access alone must not grant commit permission.
+  const GURL external_file("externalfile:foo.pdf");
+  const GURL external_variant("externalfile:foo.pdf?print=true#page=1");
+  const GURL external_other("externalfile:bar.pdf");
+  expect_permission(external_file, false);
+  policy->GrantRequestOfExternalFileUrl(child_id, external_file);
+  expect_permission(external_file, false);
+  policy->GrantCommitOfExternalFileUrl(child_id, external_variant);
+  expect_permission(external_file, true);
+  expect_permission(external_variant, true);
+  expect_permission(external_other, false);
+#endif
+}
+
+TEST_P(ChildProcessSecurityPolicyTest, RustCommitURLPendingProcessStateParity) {
+  if (std::get<0>(GetParam()) == RustPolicy::kCppOnly ||
+      !IsRustProcessStateEnabled()) {
+    GTEST_SKIP() << "Rust process state is disabled for this configuration";
+  }
+
+  auto* policy = ChildProcessSecurityPolicyImpl::GetInstance();
+  auto process = std::make_unique<MockRenderProcessHost>(browser_context());
+  const ChildProcessId child_id = process->GetID();
+  const int legacy_id = process->GetDeprecatedID();
+  const GURL allowed("https://allowed.example.test/");
+  const GURL denied("https://denied.example.test/");
+  policy->GrantCommitOrigin(legacy_id, url::Origin::Create(allowed));
+  auto handle = policy->CreateHandle(child_id);
+  process.reset();
+
+  // A live handle keeps the old process's grants available for queued work;
+  // no new grant is permitted after the process has been removed.
+  policy->GrantCommitOrigin(legacy_id, url::Origin::Create(denied));
+  EXPECT_TRUE(policy->CanCommitURLCppProcessStateForTesting(child_id, allowed));
+  EXPECT_TRUE(policy->CanCommitURLRustProcessStateForTesting(child_id, allowed));
+  EXPECT_FALSE(policy->CanCommitURLCppProcessStateForTesting(child_id, denied));
+  EXPECT_FALSE(policy->CanCommitURLRustProcessStateForTesting(child_id, denied));
+
+  handle = ChildProcessSecurityPolicyImpl::Handle();
+  base::RunLoop run_loop;
+  GetIOThreadTaskRunner({})->PostTaskAndReply(FROM_HERE, base::DoNothing(),
+                                            run_loop.QuitClosure());
+  run_loop.Run();
+  EXPECT_FALSE(policy->CanCommitURLCppProcessStateForTesting(child_id, allowed));
+  EXPECT_FALSE(policy->CanCommitURLRustProcessStateForTesting(child_id, allowed));
+}
+
+TEST_P(ChildProcessSecurityPolicyTest, RustProcessStateRequestURLParity) {
+#if BUILDFLAG(IS_WIN)
+  GTEST_SKIP() << "Request URL parity for Windows file paths is not verified";
+#endif
+  if (std::get<0>(GetParam()) == RustPolicy::kCppOnly ||
+      !IsRustProcessStateEnabled()) {
+    GTEST_SKIP() << "Rust process state is disabled for this configuration";
+  }
+  auto* policy = ChildProcessSecurityPolicyImpl::GetInstance();
+  MockRenderProcessHost process(browser_context());
+  MockRenderProcessHost other_process(browser_context());
+  const ChildProcessId child_id = process.GetID();
+  const int legacy_id = process.GetDeprecatedID();
+  const GURL first("https://example.test/page");
+  const GURL same_origin("https://example.test/other");
+  const GURL other_origin("https://other.test/page");
+  const GURL custom("custom-scheme://example.test/page");
+  const GURL file_url("file:///tmp/optimium-cpsp-test.png");
+  const GURL other_file("file:///tmp/optimium-cpsp-other.png");
+  base::FilePath path;
+  ASSERT_TRUE(net::FileURLToFilePath(file_url, &path));
+  auto expect_permission = [&](const GURL& url, bool expected) {
+    SCOPED_TRACE(url.possibly_invalid_spec());
+    EXPECT_EQ(expected, policy->CanRequestURLCppProcessStateForTesting(child_id, url));
+    EXPECT_EQ(expected, policy->CanRequestURLRustProcessStateForTesting(child_id, url));
+  };
+  expect_permission(first, false);
+  expect_permission(custom, false);
+  expect_permission(file_url, false);
+  policy->GrantRequestOrigin(legacy_id, url::Origin::Create(first));
+  expect_permission(first, true);
+  expect_permission(same_origin, true);
+  expect_permission(other_origin, false);
+  policy->GrantRequestScheme(legacy_id, "custom-scheme");
+  expect_permission(custom, true);
+  policy->GrantRequestOfSpecificFile(child_id, path.AsEndingWithSeparator());
+  expect_permission(file_url, true);
+  expect_permission(other_file, false);
+  EXPECT_FALSE(policy->CanRequestURLRustProcessStateForTesting(other_process.GetID(), file_url));
+  EXPECT_FALSE(policy->CanRequestURLCppProcessStateForTesting(other_process.GetID(), file_url));
+  policy->RevokeAllPermissionsForFile(child_id, path.AsEndingWithSeparator());
+  expect_permission(file_url, false);
+  policy->GrantRequestOfSpecificFile(child_id, path);
+  expect_permission(file_url, true);
+  policy->RevokeAllPermissionsForFile(child_id, path);
+  expect_permission(file_url, false);
+#if BUILDFLAG(IS_ANDROID)
+  const GURL content_uri("content://authority/foo.png");
+  const GURL other_content_uri("content://authority/other.png");
+  const auto content_path = base::FilePath::FromUTF8Unsafe(content_uri.spec());
+  expect_permission(content_uri, false);
+  policy->GrantRequestOfSpecificFile(child_id, content_path);
+  expect_permission(content_uri, true);
+  expect_permission(other_content_uri, false);
+  policy->RevokeAllPermissionsForFile(child_id, content_path);
+  expect_permission(content_uri, false);
+#endif
+#if BUILDFLAG(IS_CHROMEOS)
+  const GURL external_file("externalfile:foo.pdf");
+  const GURL external_variant("externalfile:foo.pdf?x=1#page");
+  const GURL external_other("externalfile:other.pdf");
+  expect_permission(external_file, false);
+  policy->GrantRequestOfExternalFileUrl(child_id, external_variant);
+  expect_permission(external_file, true);
+  expect_permission(external_variant, true);
+  expect_permission(external_other, false);
+#endif
+}
+
+TEST_P(ChildProcessSecurityPolicyTest, RustRequestURLPendingProcessStateParity) {
+#if BUILDFLAG(IS_WIN)
+  GTEST_SKIP() << "Request URL parity for Windows file paths is not verified";
+#endif
+  if (std::get<0>(GetParam()) == RustPolicy::kCppOnly ||
+      !IsRustProcessStateEnabled()) {
+    GTEST_SKIP() << "Rust process state is disabled for this configuration";
+  }
+  auto* policy = ChildProcessSecurityPolicyImpl::GetInstance();
+  auto process = std::make_unique<MockRenderProcessHost>(browser_context());
+  const ChildProcessId child_id = process->GetID();
+  const GURL file_url("file:///tmp/optimium-pending-test.png");
+  base::FilePath path;
+  ASSERT_TRUE(net::FileURLToFilePath(file_url, &path));
+  policy->GrantRequestOfSpecificFile(child_id, path);
+  auto handle = policy->CreateHandle(child_id);
+  process.reset();
+  policy->RevokeAllPermissionsForFile(child_id, path);
+  EXPECT_TRUE(policy->CanRequestURLCppProcessStateForTesting(child_id, file_url));
+  EXPECT_TRUE(policy->CanRequestURLRustProcessStateForTesting(child_id, file_url));
+  handle = ChildProcessSecurityPolicyImpl::Handle();
+  base::RunLoop run_loop;
+  GetIOThreadTaskRunner({})->PostTaskAndReply(FROM_HERE, base::DoNothing(),
+                                            run_loop.QuitClosure());
+  run_loop.Run();
+  EXPECT_FALSE(policy->CanRequestURLCppProcessStateForTesting(child_id, file_url));
+  EXPECT_FALSE(policy->CanRequestURLRustProcessStateForTesting(child_id, file_url));
+}
+
+TEST_P(ChildProcessSecurityPolicyTest, PublicRequestAndCommitGrants) {
+  auto* policy = ChildProcessSecurityPolicyImpl::GetInstance();
+  RegisterTestScheme("optimium-test");
+  MockRenderProcessHost process(browser_context());
+  const ChildProcessId id = process.GetID();
+  const int legacy_id = process.GetDeprecatedID();
+  const GURL custom("optimium-test://host/page");
+  const base::FilePath path(TEST_PATH("/tmp/optimium-public-test"));
+  const GURL file = net::FilePathToFileURL(path);
+  const GURL other_file = net::FilePathToFileURL(
+      base::FilePath(TEST_PATH("/tmp/optimium-public-other")));
+  ASSERT_TRUE(custom.is_valid());
+  ASSERT_TRUE(file.is_valid());
+  LockProcessIfNeeded(id, browser_context(), custom);
+  process.SetIsUsed();
+
+  EXPECT_FALSE(policy->CanRequestURL(id, custom));
+  EXPECT_FALSE(policy->CanCommitURL(id, custom));
+  policy->GrantRequestScheme(legacy_id, "optimium-test");
+  EXPECT_TRUE(policy->CanRequestURL(id, custom));
+  EXPECT_FALSE(policy->CanCommitURL(id, custom));
+  policy->GrantCommitScheme(legacy_id, "optimium-test");
+  EXPECT_TRUE(policy->CanRequestURL(id, custom));
+  EXPECT_TRUE(policy->CanCommitURL(id, custom));
+
+  EXPECT_FALSE(policy->CanRequestURL(id, file));
+  policy->GrantRequestOfSpecificFile(id, path);
+  EXPECT_TRUE(policy->CanRequestURL(id, file));
+  EXPECT_FALSE(policy->CanRequestURL(id, other_file));
+  policy->RevokeAllPermissionsForFile(id, path);
+  EXPECT_FALSE(policy->CanRequestURL(id, file));
+}
+
+// Exercise concurrent permission grants and requests on the actual browser
+// threads. In RustAndCpp mode the production parity check must not observe a
+// partially updated pair of states.
+TEST_P(ChildProcessSecurityPolicyTest, ConcurrentRequestGrantAndQuery) {
+  base::test::ScopedRunLoopTimeout run_timeout(FROM_HERE, base::Seconds(15));
+  auto* policy = ChildProcessSecurityPolicyImpl::GetInstance();
+  MockRenderProcessHost process(browser_context());
+  const ChildProcessId id = process.GetID();
+  const base::FilePath path(TEST_PATH("/tmp/optimium-concurrent-allowed"));
+  const GURL allowed = net::FilePathToFileURL(path);
+  ASSERT_TRUE(allowed.is_valid());
+  struct Shared {
+    std::atomic<bool> stop{false};
+    std::atomic<int> epoch{0};
+    std::atomic<bool> observed{false};
+    base::WaitableEvent ready;
+    base::WaitableEvent acknowledged{base::WaitableEvent::ResetPolicy::AUTOMATIC,
+                                     base::WaitableEvent::InitialState::NOT_SIGNALED};
+  };
+  auto shared = std::make_shared<Shared>();
+  base::RunLoop finished;
+  GetIOThreadTaskRunner({})->PostTaskAndReply(
+      FROM_HERE,
+      base::BindLambdaForTesting([shared, policy, id, allowed] {
+        int last_epoch = 0;
+        policy->CanRequestURL(id, allowed);
+        shared->ready.Signal();
+        while (!shared->stop.load(std::memory_order_acquire)) {
+          const int current_epoch = shared->epoch.load(std::memory_order_acquire);
+          const bool result = policy->CanRequestURL(id, allowed);
+          if (current_epoch != last_epoch) {
+            shared->observed.store(result, std::memory_order_release);
+            last_epoch = current_epoch;
+            shared->acknowledged.Signal();
+          }
+        }
+      }),
+      finished.QuitClosure());
+
+  base::ScopedAllowBaseSyncPrimitivesForTesting allow_wait;
+  bool completed = shared->ready.TimedWait(base::Seconds(5));
+  for (int i = 0; completed && i < 32; ++i) {
+    // The worker continues to query while each grant and revocation executes.
+    // Wait for a query after each change before making the next change.
+    policy->GrantRequestOfSpecificFile(id, path);
+    shared->epoch.fetch_add(1, std::memory_order_release);
+    completed = shared->acknowledged.TimedWait(base::Seconds(5));
+    if (completed) {
+      EXPECT_TRUE(shared->observed.load(std::memory_order_acquire));
+      policy->RevokeAllPermissionsForFile(id, path);
+      shared->epoch.fetch_add(1, std::memory_order_release);
+      completed = shared->acknowledged.TimedWait(base::Seconds(5));
+      if (completed) {
+        EXPECT_FALSE(shared->observed.load(std::memory_order_acquire));
+      }
+    }
+  }
+  shared->stop.store(true, std::memory_order_release);
+  finished.Run();
+  EXPECT_TRUE(completed) << "Timed out waiting for IO-thread queries";
+}
+
+// Keep an IO task in front of the cleanup task and release the last handle
+// while it is waiting. Only the IO thread may query the remaining C++ state.
+TEST_P(ChildProcessSecurityPolicyTest, RequestAfterLastHandleBeforeIoCleanup) {
+  base::test::ScopedRunLoopTimeout run_timeout(FROM_HERE, base::Seconds(15));
+  auto* policy = ChildProcessSecurityPolicyImpl::GetInstance();
+  auto process = std::make_unique<MockRenderProcessHost>(browser_context());
+  const ChildProcessId id = process->GetID();
+  const int legacy_id = process->GetDeprecatedID();
+  const GURL allowed("file:///tmp/optimium-pending");
+  policy->GrantRequestOrigin(legacy_id, url::Origin::Create(allowed));
+  policy->GrantCommitOrigin(legacy_id, url::Origin::Create(allowed));
+  auto handle = policy->CreateHandle(id);
+  process.reset();
+  struct Shared {
+    base::WaitableEvent ready;
+    base::WaitableEvent continue_io;
+    std::atomic<bool> proceed{false};
+    std::atomic<bool> request_result{false};
+    std::atomic<bool> cpp_commit_result{false};
+    std::atomic<bool> rust_commit_result{false};
+  };
+  auto shared = std::make_shared<Shared>();
+  base::RunLoop finished;
+  GetIOThreadTaskRunner({})->PostTaskAndReply(
+      FROM_HERE,
+      base::BindLambdaForTesting([shared, policy, id, allowed] {
+        base::ScopedAllowBaseSyncPrimitivesForTesting allow_wait;
+        shared->ready.Signal();
+        if (!shared->continue_io.TimedWait(base::Seconds(10)) ||
+            !shared->proceed.load(std::memory_order_acquire)) {
+          return;
+        }
+        shared->request_result.store(policy->CanRequestURL(id, allowed),
+                                     std::memory_order_release);
+        shared->cpp_commit_result.store(
+            policy->CanCommitURLCppProcessStateForTesting(id, allowed),
+            std::memory_order_release);
+        shared->rust_commit_result.store(
+            policy->CanCommitURLRustProcessStateForTesting(id, allowed),
+            std::memory_order_release);
+      }),
+      finished.QuitClosure());
+  base::ScopedAllowBaseSyncPrimitivesForTesting allow_wait;
+  const bool ready = shared->ready.TimedWait(base::Seconds(5));
+  handle = ChildProcessSecurityPolicyImpl::Handle();
+  shared->proceed.store(ready, std::memory_order_release);
+  shared->continue_io.Signal();
+  finished.Run();
+  ASSERT_TRUE(ready) << "IO thread did not reach the cleanup barrier";
+  EXPECT_TRUE(shared->request_result.load(std::memory_order_acquire));
+  // The Rust state is gone while the C++ state remains available on IO. A
+  // public commit may still fail its earlier RenderProcessHost checks.
+  EXPECT_TRUE(shared->cpp_commit_result.load(std::memory_order_acquire));
+  EXPECT_FALSE(shared->rust_commit_result.load(std::memory_order_acquire));
+  base::RunLoop cleanup;
+  GetIOThreadTaskRunner({})->PostTaskAndReply(FROM_HERE, base::DoNothing(),
+                                            cleanup.QuitClosure());
+  cleanup.Run();
+  EXPECT_FALSE(policy->CanRequestURL(id, allowed));
 }
 
 TEST_P(ChildProcessSecurityPolicyTest, StandardSchemesTest) {
