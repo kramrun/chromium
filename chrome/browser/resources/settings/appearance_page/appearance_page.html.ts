@@ -39,8 +39,8 @@ export function getHtml(this: SettingsAppearancePageElement) {
         `)}
       </div>
       <label class="design-option-row">
-        <div><span>Применять цвета к YouTube и Google</span>
-          <p>Цвета страниц следуют выбранной теме. Видео сохраняет исходные цвета.</p></div>
+        <div><span>Применять цвета к поиску Google</span>
+          <p>Цвета страницы поиска следуют выбранной теме.</p></div>
         <input type="checkbox" data-option="website_theme_enabled"
             ?disabled="${this.designAppearanceBusy_}"
             .checked="${!!this.designAppearanceOptions_['website_theme_enabled']}"

@@ -3,21 +3,15 @@
 // found in the LICENSE file.
 
 (() => {
-  const youtube = /(^|\.)youtube\.com$/.test(location.hostname);
-  // Account/payment pages retain their own presentation. No video/image filters
-  // or page-wide opacity: only supported site surfaces are recolored.
-  if (!youtube &&
-      (!['google.com', 'www.google.com', 'google.ru', 'www.google.ru'].includes(location.hostname) ||
-       !['/', '/search', '/webhp'].includes(location.pathname))) {
+  // Only recolor Google search pages; leave other sites unchanged.
+  if (!['google.com', 'www.google.com', 'google.ru', 'www.google.ru'].includes(location.hostname) ||
+      !['/', '/search', '/webhp'].includes(location.pathname)) {
     return;
   }
   let style;
   let pendingTheme;
   let waitingForDocument = false;
   let revision = 0;
-  let previousYoutubeDark;
-  let youtubeDarkObserver;
-  let desiredYoutubeDark = false;
   function applyTheme(theme) {
     if (!document.documentElement) {
       pendingTheme = theme;
@@ -33,33 +27,7 @@
     style?.remove();
     style = undefined;
     if (!theme?.enabled) {
-      if (youtubeDarkObserver) {
-        youtubeDarkObserver.disconnect();
-        youtubeDarkObserver = undefined;
-        document.documentElement.toggleAttribute('dark', previousYoutubeDark);
-        previousYoutubeDark = undefined;
-      }
       return;
-    }
-    if (youtube) {
-      // YouTube uses this attribute for many components in addition to its
-      // color variables. Without it, icons can be black on a dark background.
-      // Keep its previous preference so disabling Optimium's site theme does
-      // not permanently change the site's own appearance setting.
-      if (!youtubeDarkObserver) {
-        previousYoutubeDark = document.documentElement.hasAttribute('dark');
-        youtubeDarkObserver = new MutationObserver(() => {
-          const isDark = document.documentElement.hasAttribute('dark');
-          if (isDark !== desiredYoutubeDark) {
-            previousYoutubeDark = isDark;
-            document.documentElement.toggleAttribute('dark', desiredYoutubeDark);
-          }
-        });
-        youtubeDarkObserver.observe(document.documentElement,
-                                    {attributes: true, attributeFilter: ['dark']});
-      }
-      desiredYoutubeDark = theme.dark !== false;
-      document.documentElement.toggleAttribute('dark', desiredYoutubeDark);
     }
     const fallback = theme.dark ?
         {ntp_background: '#211e29', ntp_text: '#f5f1fa', toolbar: '#393344', toolbar_button_icon: '#ded6ee'} :
@@ -76,40 +44,7 @@
     const link = theme.dark ? '#c4b5fd' : '#60418b';
     style = document.createElement('style');
     style.id = 'optimium-site-theme';
-    style.textContent = youtube ? `
-      html, ytd-app, ytd-page-manager {
-        color-scheme: ${theme.dark ? 'dark' : 'light'} !important;
-        --yt-spec-base-background: ${bg} !important;
-        --yt-spec-raised-background: ${surface} !important;
-        --yt-spec-menu-background: ${surface} !important;
-        --yt-spec-brand-background-primary: ${bg} !important;
-        --yt-spec-brand-background-secondary: ${surface} !important;
-        --yt-spec-text-primary: ${text} !important;
-        --yt-spec-text-secondary: ${muted} !important;
-        --yt-spec-icon-active-other: ${accent} !important;
-        --yt-spec-icon-inactive: ${muted} !important;
-        --yt-spec-badge-chip-background: ${surface} !important;
-        --yt-spec-button-chip-background-hover: ${border} !important;
-        --yt-spec-10-percent-layer: ${border} !important;
-        --yt-spec-general-background-a: ${bg} !important;
-        --yt-spec-general-background-b: ${bg} !important;
-        --ytd-searchbox-background: ${bg} !important;
-        --ytd-searchbox-text-color: ${text} !important;
-        --ytd-searchbox-border-color: ${border} !important;
-        --ytd-searchbox-legacy-button-color: ${surface} !important;
-        --ytd-searchbox-legacy-button-border-color: ${border} !important;
-        --yt-spec-call-to-action: ${link} !important;
-      }
-      html, body, ytd-app { background: ${bg} !important; color: ${text} !important; }
-      ytd-masthead, #background.ytd-masthead, tp-yt-app-drawer,
-      ytd-guide-renderer, ytd-mini-guide-renderer {
-        background: ${bg} !important;
-      }
-      yt-searchbox .ytSearchboxComponentInputBox,
-      yt-searchbox .ytSearchboxComponentSuggestionsContainer {
-        background: ${surface} !important; color: ${text} !important;
-      }
-    ` : `
+    style.textContent = `
       :root { color-scheme: ${theme.dark ? 'dark' : 'light'} !important; }
       html, body, #search, #main, #appbar, #sfcnt, #hdtb, #top_nav, #fbar {
         background-color: ${bg} !important; color: ${text} !important;

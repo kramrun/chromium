@@ -144,6 +144,7 @@ mod ffi {
         fn is_web_safe_scheme(scheme: &str) -> bool;
         fn can_commit_scheme_in_any_process(scheme: &str) -> bool;
         fn is_pseudo_scheme(scheme: &str) -> bool;
+        fn can_redirect_to_url(url: &GURL, is_error_scheme: bool, is_pseudo: bool) -> bool;
         fn clear_registered_scheme_for_testing(scheme: &str);
         fn clear_all_registered_schemes_for_testing();
 
@@ -321,6 +322,12 @@ fn can_commit_scheme_in_any_process(scheme: &str) -> bool {
 fn is_pseudo_scheme(scheme: &str) -> bool {
     let cpsp = ChildProcessSecurityPolicyImpl::get_locked_instance();
     cpsp.known_schemes.get(scheme).is_some_and(|p| *p == SchemePolicy::Pseudo)
+}
+
+// The caller takes one scheme-policy snapshot for both implementations. GURL
+// remains responsible for canonicalization and the exact about:blank rules.
+fn can_redirect_to_url(url: &ffi::GURL, is_error_scheme: bool, is_pseudo: bool) -> bool {
+    url.is_valid() && !is_error_scheme && (!is_pseudo || url.is_about_blank())
 }
 
 fn clear_registered_scheme_for_testing(scheme: &str) {

@@ -764,6 +764,7 @@ class CONTENT_EXPORT ChildProcessSecurityPolicyImpl
   //       represents a stricter subset. It must also be used for
   //       renderer-initiated navigations.
   bool CanRedirectToURL(const GURL& url);
+  bool CanRedirectToURL_Cpp(const GURL& url, bool is_pseudo_scheme);
 
   // Sets "killed_process_origin_lock" crash key with lock info for the
   // process associated with |child_id|.

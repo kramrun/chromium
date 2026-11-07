@@ -417,6 +417,25 @@ TEST_P(ChildProcessSecurityPolicyTest, IsPseudoSchemeTest) {
   p->ClearRegisteredSchemeForTesting("registered-pseudo-scheme");
 }
 
+TEST_P(ChildProcessSecurityPolicyTest, RedirectPolicySchemeChanges) {
+  auto* policy = ChildProcessSecurityPolicyImpl::GetInstance();
+  constexpr char kScheme[] = "optimium-redirect-test";
+  const GURL custom_url("optimium-redirect-test:resource");
+  ASSERT_TRUE(custom_url.is_valid());
+
+  EXPECT_FALSE(policy->CanRedirectToURL(GURL()));
+  EXPECT_FALSE(policy->CanRedirectToURL(GURL(kUnreachableWebDataURL)));
+  EXPECT_TRUE(policy->CanRedirectToURL(GURL("about:blank")));
+  EXPECT_FALSE(policy->CanRedirectToURL(GURL("about:BlAnK")));
+  EXPECT_FALSE(policy->CanRedirectToURL(GURL("about:srcdoc")));
+  EXPECT_FALSE(policy->CanRedirectToURL(GURL("javascript:alert(1)")));
+  EXPECT_TRUE(policy->CanRedirectToURL(custom_url));
+  policy->RegisterPseudoScheme(kScheme);
+  EXPECT_FALSE(policy->CanRedirectToURL(custom_url));
+  policy->ClearRegisteredSchemeForTesting(kScheme);
+  EXPECT_TRUE(policy->CanRedirectToURL(custom_url));
+}
+
 TEST_P(ChildProcessSecurityPolicyTest, RustProcessStateCommitURLParity) {
   if (std::get<0>(GetParam()) == RustPolicy::kCppOnly ||
       !IsRustProcessStateEnabled()) {

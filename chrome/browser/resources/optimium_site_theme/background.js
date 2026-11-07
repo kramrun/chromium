@@ -29,7 +29,7 @@ async function getTheme() {
 
 chrome.runtime.onMessage.addListener((message, sender, respond) => {
   const supportedSite =
-      /^https:\/\/([a-z\d-]+\.)*(youtube\.com|google\.com|google\.ru)\//i.test(sender.url || '');
+      /^https:\/\/([a-z\d-]+\.)*(google\.com|google\.ru)\//i.test(sender.url || '');
   const soundcloudFrame = sender.frameId > 0 &&
       /^https:\/\/w\.soundcloud\.com\/player\/(?:\?|$)/.test(sender.url || '');
   if (message?.type !== 'optimium-theme' || !sender.tab ||

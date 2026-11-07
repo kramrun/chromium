@@ -2041,6 +2041,21 @@ bool ChildProcessSecurityPolicyImpl::CanRequestURL(ChildProcessId child_id,
 }
 
 bool ChildProcessSecurityPolicyImpl::CanRedirectToURL(const GURL& url) {
+  // Both implementations must see the same scheme-policy snapshot. In
+  // particular, don't acquire the scheme lock independently for each result
+  // in comparison mode while schemes may be registered concurrently.
+  const bool is_error_scheme = url.GetScheme() == kChromeErrorScheme;
+  const bool is_pseudo_scheme =
+      url.is_valid() && !is_error_scheme && IsPseudoScheme(url.GetScheme());
+  RUST_CPP_RETURN_FUNCTION(
+      rust::child_process_security_policy::can_redirect_to_url(
+          url, is_error_scheme, is_pseudo_scheme),
+      CanRedirectToURL_Cpp(url, is_pseudo_scheme));
+}
+
+bool ChildProcessSecurityPolicyImpl::CanRedirectToURL_Cpp(
+    const GURL& url,
+    bool is_pseudo_scheme) {
   if (!url.is_valid()) {
     return false;  // Can't redirect to invalid URLs.
   }
@@ -2052,7 +2067,7 @@ bool ChildProcessSecurityPolicyImpl::CanRedirectToURL(const GURL& url) {
     return false;
   }
 
-  if (IsPseudoScheme(scheme)) {
+  if (is_pseudo_scheme) {
     // Redirects to a pseudo scheme (about, javascript, view-source, ...) are
     // not allowed. An exception is made for <about:blank> and its variations.
     return url.IsAboutBlank();

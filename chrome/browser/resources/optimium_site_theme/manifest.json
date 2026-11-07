@@ -2,13 +2,12 @@
   "manifest_version": 3,
   "name": "Optimium • оформление сайтов",
   "version": "1.0",
-  "description": "Цвета Optimium на YouTube и в поиске Google. Управление во Внешнем виде.",
+  "description": "Цвета Optimium в поиске Google. Управление во Внешнем виде.",
   "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAqY70ToBRCkTWw61H7e7XDM4qgmyhNQB24u/pimAmJeDr3ukqL45zD82oIMGDlHr+EsgC+zxWpE46SQGXSr55PKekv0h/Yu5ZcBViB6n+qyRT0upVm4QV3CchBilp/ZGhRJXCYL9A11QsbYcOTXvMHkOcP3wLGU7SyqtfaxW533IDicI+gzEyhtk42lA2ZEj72uwb8NJENqMZ5ZS79SW6byKC7ZjQWXEfQVuF74KjzoUrVLTjX4VEe2keWEUOc/lidbJZsKuxPOjBcBWjiCyqcds+cZMlBrnAS5mRskOz7t/MYeIcL1DLDYAUxqhAHFHTAeS7G2RiW/5CvhF3gUAGVwIDAQAB",
   "permissions": [
     "settingsPrivate"
   ],
   "host_permissions": [
-    "https://*.youtube.com/*",
     "https://google.com/*",
     "https://www.google.com/*",
     "https://google.ru/*",
@@ -21,7 +20,6 @@
   "content_scripts": [
     {
       "matches": [
-        "https://*.youtube.com/*",
         "https://google.com/*",
         "https://www.google.com/*",
         "https://google.ru/*",
