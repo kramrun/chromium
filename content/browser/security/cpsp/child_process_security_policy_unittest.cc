@@ -645,6 +645,18 @@ TEST_P(ChildProcessSecurityPolicyTest, RustRequestFileURLPathParity) {
     expect_permission(id, false);
     expect_permission(other_id, false);
   }
+
+  // Invalid decoded paths and remote file hosts must not accidentally inherit
+  // a local file grant when the URL-to-path conversion fails.
+  for (const char* spec : {"file:///tmp/optimium%2Fsecret",
+                           "file:///tmp/optimium%00secret",
+                           "file://remote.example/tmp/optimium-secret"}) {
+    const GURL url(spec);
+    ASSERT_TRUE(url.is_valid());
+    SCOPED_TRACE(url.spec());
+    EXPECT_FALSE(policy->CanRequestURLCppProcessStateForTesting(id, url));
+    EXPECT_FALSE(policy->CanRequestURLRustProcessStateForTesting(id, url));
+  }
 #endif
 }
 
