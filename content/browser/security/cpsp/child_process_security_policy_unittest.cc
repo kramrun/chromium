@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 #include <tuple>
+#include <vector>
 
 #include "base/files/file_path.h"
 #include "base/functional/callback_helpers.h"
@@ -587,6 +588,63 @@ TEST_P(ChildProcessSecurityPolicyTest, RustProcessStateRequestURLParity) {
   expect_permission(external_file, true);
   expect_permission(external_variant, true);
   expect_permission(external_other, false);
+#endif
+}
+
+TEST_P(ChildProcessSecurityPolicyTest, RustRequestFileURLPathParity) {
+#if BUILDFLAG(IS_WIN)
+  GTEST_SKIP() << "Request URL parity for Windows file paths is not verified";
+#else
+  if (std::get<0>(GetParam()) == RustPolicy::kCppOnly ||
+      !IsRustProcessStateEnabled()) {
+    GTEST_SKIP() << "Rust process state is disabled for this configuration";
+  }
+
+  auto* policy = ChildProcessSecurityPolicyImpl::GetInstance();
+  MockRenderProcessHost process(browser_context());
+  MockRenderProcessHost other_process(browser_context());
+  const ChildProcessId id = process.GetID();
+  const ChildProcessId other_id = other_process.GetID();
+  const std::vector<base::FilePath> paths = {
+      base::FilePath("/tmp/optimium space #%?.txt"),
+      base::FilePath("/tmp/optimium-parent/../optimium-normalized.txt"),
+      base::FilePath(std::string("/tmp/optimium-invalid-") +
+                     std::string(1, static_cast<char>(0xff)) + ".txt"),
+  };
+
+  for (const auto& path : paths) {
+    const GURL url = net::FilePathToFileURL(path);
+    ASSERT_TRUE(url.is_valid());
+    base::FilePath canonical_path;
+    ASSERT_TRUE(net::FileURLToFilePath(url, &canonical_path));
+    SCOPED_TRACE(url.possibly_invalid_spec());
+    auto expect_permission = [&](ChildProcessId process_id, bool expected) {
+      EXPECT_EQ(expected,
+                policy->CanRequestURLCppProcessStateForTesting(process_id, url));
+      EXPECT_EQ(expected,
+                policy->CanRequestURLRustProcessStateForTesting(process_id, url));
+    };
+
+    expect_permission(id, false);
+    expect_permission(other_id, false);
+    policy->GrantRequestOfSpecificFile(id, path);
+    expect_permission(id, true);
+    expect_permission(other_id, false);
+
+    // Revocation does not perform the grant's URL round-trip. Compare both
+    // implementations even when the original path contains dot segments.
+    policy->RevokeAllPermissionsForFile(id, path);
+    EXPECT_EQ(policy->CanRequestURLCppProcessStateForTesting(id, url),
+              policy->CanRequestURLRustProcessStateForTesting(id, url));
+    policy->GrantRequestOfSpecificFile(id, path);
+    expect_permission(id, true);
+
+    // GrantRequestOfSpecificFile stores the URL-round-tripped path. Revoke
+    // that exact representation so this also covers paths with dot segments.
+    policy->RevokeAllPermissionsForFile(id, canonical_path);
+    expect_permission(id, false);
+    expect_permission(other_id, false);
+  }
 #endif
 }
 
