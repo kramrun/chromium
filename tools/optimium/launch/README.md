@@ -72,3 +72,38 @@ Fresh-profile YouTube navigation failed with `net::ERR_NAME_NOT_RESOLVED`, so it
 memory measurement was rejected. The user's already-running browser was kept
 open; savings on their authenticated YouTube page have not been measured.
 Original launcher was backed up locally. No C++/Rust code or binary was changed.
+
+## Main Optimium promotion
+
+Install `optimium.sh` as the main package's `optimium` launcher. It retains
+`CHROME_DESKTOP=optimium.desktop` and the original `~/.config/optimium` user-data
+root. It enables the existing Rust policy pair and the measured balanced launch
+settings. A real executable named `Rustinium` is preferred, with `chrome` as the
+fallback for ordinary Chromium build output. Set `OPTIMIUM_MEMORY_MODE=standard`
+to disable the balanced launch exclusions while retaining the Rust policy pair.
+
+The desktop entry must execute this wrapper rather than `chrome` directly.
+Keep the original desktop file ID so existing browser associations continue to
+work. No `--password-store` or encryption-provider override is introduced.
+
+Promotion must keep the complete original main profile and Local State, the
+same Linux user, and access to the existing keyring. Close the old main browser
+gracefully before replacing its package; back up the stopped profile and old
+package; reopen with session restoration. Verify saved-login and cookie access
+on a protected clone before switching, without logging password/cookie values.
+
+The experimental launcher and its date-specific profile remain separate, so
+accounts used only in that profile are still accessible. Do not replace the main
+profile with the experimental profile or merge their login/cookie databases.
+After verifying decryption against the main Local State/keyring identity, an
+experimental profile can also be copied into an unused `Profile N` directory
+and registered as a distinct named profile. Keep the original profile root and
+do not combine SQL records or replace the existing Default profile. This lets
+the main application open both account sets through its profile menu.
+
+Sites can independently expire sessions; preserved local data is not a promise
+that a server will never request reauthentication.
+
+Promoting a source branch does not build it. A reused compiled package contains
+only changes from its recorded build; newer CompactMap changes require their
+own authorized build and integration tests before claiming they run locally.
