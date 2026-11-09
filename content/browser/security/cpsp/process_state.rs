@@ -592,9 +592,11 @@ impl ProcessState {
 
     fn can_request_url(&self, url: &ffi::GURL) -> bool {
         debug_assert!(!url.scheme_is_blob() && !url.scheme_is_filesystem());
-        if self.can_request_scheme(url.scheme())
-            || self.can_request_origin(&url_rust::origin::ffi::create_origin_from_gurl(url))
-        {
+        if self.can_request_scheme(url.scheme()) {
+            return true;
+        }
+        let origin = url_rust::origin::ffi::create_origin_from_gurl(url);
+        if self.can_request_origin(&origin) {
             return true;
         }
         if url.scheme_is("file") {
@@ -612,10 +614,18 @@ impl ProcessState {
         if url.scheme_is("externalfile") {
             return self.request_externalfile_set.contains(&ffi::normalize_external_file_url(url));
         }
-        self.can_commit_url(url)
+        self.can_commit_url_with_origin(url, Some(&origin))
     }
 
     fn can_commit_url(&self, url: &ffi::GURL) -> bool {
+        self.can_commit_url_with_origin(url, None)
+    }
+
+    fn can_commit_url_with_origin(
+        &self,
+        url: &ffi::GURL,
+        existing_origin: Option<&UniquePtr<ffi::Origin>>,
+    ) -> bool {
         debug_assert!(
             !url.scheme_is_blob() && !url.scheme_is_filesystem(),
             "inner_url extraction should be done already."
@@ -639,12 +649,10 @@ impl ProcessState {
         }
 
         // Check for permission for specific origin.
-        if self.can_commit_origin(&url_rust::origin::ffi::create_origin_from_gurl(url)) {
-            return true;
+        match existing_origin {
+            Some(origin) => self.can_commit_origin(origin),
+            None => self.can_commit_origin(&url_rust::origin::ffi::create_origin_from_gurl(url)),
         }
-
-        // Unmentioned schemes are disallowed.
-        false
     }
 
     fn has_web_ui_bindings(&self) -> bool {

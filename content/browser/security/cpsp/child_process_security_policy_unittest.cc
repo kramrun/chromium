@@ -557,6 +557,9 @@ TEST_P(ChildProcessSecurityPolicyTest, RustProcessStateRequestURLParity) {
   const GURL first("https://example.test/page");
   const GURL same_origin("https://example.test/other");
   const GURL other_origin("https://other.test/page");
+  const GURL other_port("https://example.test:8443/page");
+  const GURL commit_origin("https://commit-only.example.test/page");
+  const GURL opaque("data:text/plain,hello");
   const GURL custom("custom-scheme://example.test/page");
   const GURL file_url("file:///tmp/optimium-cpsp-test.png");
   const GURL other_file("file:///tmp/optimium-cpsp-other.png");
@@ -570,10 +573,18 @@ TEST_P(ChildProcessSecurityPolicyTest, RustProcessStateRequestURLParity) {
   expect_permission(first, false);
   expect_permission(custom, false);
   expect_permission(file_url, false);
+  expect_permission(other_port, false);
+  expect_permission(commit_origin, false);
+  expect_permission(opaque, false);
   policy->GrantRequestOrigin(legacy_id, url::Origin::Create(first));
   expect_permission(first, true);
   expect_permission(same_origin, true);
   expect_permission(other_origin, false);
+  expect_permission(other_port, false);
+  policy->GrantCommitOrigin(legacy_id, url::Origin::Create(commit_origin));
+  expect_permission(commit_origin, true);
+  policy->GrantCommitOrigin(legacy_id, url::Origin::Create(opaque));
+  expect_permission(opaque, false);
   policy->GrantRequestScheme(legacy_id, "custom-scheme");
   expect_permission(custom, true);
   policy->GrantRequestOfSpecificFile(child_id, path.AsEndingWithSeparator());
