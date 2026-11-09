@@ -21,6 +21,7 @@ use storage_common_rust::FileSystemType;
 use unguessable_token::UnguessableToken;
 use url_rust::Origin;
 
+use crate::compact_map::CompactMap;
 use crate::process_state::ProcessStateMaps;
 
 /// This block defines the Foreign Function Interface for C++ code to call the
@@ -361,7 +362,7 @@ fn add_v8_optimization_disabled_state_for_origin_if_not_cached(
     let optimization_verdicts_by_origin =
         cpsp.v8_optimization_verdict_map.entry(browsing_instance_id).or_default();
     // Only store the verdict if it hasn't been cached yet.
-    optimization_verdicts_by_origin.entry(process_lock_origin).or_insert(verdict);
+    optimization_verdicts_by_origin.insert_if_absent(process_lock_origin, verdict);
 }
 
 /// Rust-side equivalent of LookupAreV8OptimizationsDisabled() in
@@ -516,7 +517,7 @@ fn add_origin_agent_cluster_state_for_browsing_instance(
         .entry(browsing_instance_id)
         .or_default();
 
-    states.entry(origin).or_insert(oac_state);
+    states.insert_if_absent(origin, oac_state);
 }
 
 fn record_default_origin_agent_cluster_origin_if_new(
@@ -892,10 +893,10 @@ pub struct ChildProcessSecurityPolicyImpl {
     /// contains a verdict for any ProcessLock eligible for disabling V8
     /// optimizations (e.g., web-safe schemes, etc) in every
     /// BrowsingInstance, and is populated at ReadyToCommit time. Stored as
-    /// a BTreeMap rather than a HashMap to closer match how base::flat_map
-    /// works on the C++ side (using binary search over sorted keys).
+    /// a BTreeMap by BrowsingInstance; inner CompactMaps avoid allocating
+    /// full B-tree nodes for the common small per-instance origin tables.
     v8_optimization_verdict_map:
-        BTreeMap<BrowsingInstanceId, BTreeMap<cxx::UniquePtr<Origin>, V8OptimizationVerdict>>,
+        BTreeMap<BrowsingInstanceId, CompactMap<cxx::UniquePtr<Origin>, V8OptimizationVerdict>>,
 
     /// A map of FileSystemTypes to bitwise-or'd combinations of permission
     /// policies allowed for those types. See
@@ -939,7 +940,7 @@ pub struct ChildProcessSecurityPolicyImpl {
     // https://crbug.com/446157743.
     origin_agent_cluster_states_by_browsing_instance: BTreeMap<
         BrowsingInstanceId,
-        BTreeMap<cxx::UniquePtr<ffi::Origin>, ffi::OriginAgentClusterIsolationState>,
+        CompactMap<cxx::UniquePtr<ffi::Origin>, ffi::OriginAgentClusterIsolationState>,
     >,
 
     /// Tracks files that the browser process has granted permission to the

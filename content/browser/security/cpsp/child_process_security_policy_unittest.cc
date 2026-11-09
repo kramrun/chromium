@@ -541,6 +541,52 @@ TEST_P(ChildProcessSecurityPolicyTest, RustCommitURLPendingProcessStateParity) {
   EXPECT_FALSE(policy->CanCommitURLRustProcessStateForTesting(child_id, allowed));
 }
 
+TEST_P(ChildProcessSecurityPolicyTest,
+       RustCompactGrantTablesPreservePermissions) {
+  if (std::get<0>(GetParam()) == RustPolicy::kCppOnly ||
+      !IsRustProcessStateEnabled()) {
+    GTEST_SKIP() << "Rust process state is disabled for this configuration";
+  }
+  auto* policy = ChildProcessSecurityPolicyImpl::GetInstance();
+  MockRenderProcessHost process(browser_context());
+  MockRenderProcessHost other_process(browser_context());
+  const ChildProcessId id = process.GetID();
+  const int legacy_id = process.GetDeprecatedID();
+  for (int index = 0; index < 32; ++index) {
+    const GURL url("https://compact-" + std::to_string(index) + ".example.test/");
+    const auto origin = url::Origin::Create(url);
+    policy->GrantRequestOrigin(legacy_id, origin);
+    if (index % 2 == 0) {
+      policy->GrantCommitOrigin(legacy_id, origin);
+    }
+    // Duplicate request grants must never downgrade an existing commit grant.
+    policy->GrantRequestOrigin(legacy_id, origin);
+    const std::string scheme = "compact" + std::to_string(index);
+    policy->GrantCommitScheme(legacy_id, scheme);
+    policy->GrantRequestScheme(legacy_id, scheme);
+    // Check every earlier key on both sides of the small-table promotion.
+    for (int previous = 0; previous <= index; ++previous) {
+      const GURL earlier("https://compact-" + std::to_string(previous) +
+                         ".example.test/");
+      EXPECT_TRUE(policy->CanRequestURLRustProcessStateForTesting(id, earlier));
+      EXPECT_EQ(previous % 2 == 0,
+                policy->CanCommitURLRustProcessStateForTesting(id, earlier));
+      EXPECT_EQ(policy->CanCommitURLCppProcessStateForTesting(id, earlier),
+                policy->CanCommitURLRustProcessStateForTesting(id, earlier));
+      const GURL custom("compact" + std::to_string(previous) + "://host/page");
+      EXPECT_TRUE(policy->CanCommitURLRustProcessStateForTesting(id, custom));
+      EXPECT_FALSE(policy->CanCommitURLRustProcessStateForTesting(
+          other_process.GetID(), earlier));
+    }
+  }
+  const GURL missing("https://never-granted.example.test/");
+  EXPECT_FALSE(policy->CanRequestURLRustProcessStateForTesting(id, missing));
+  EXPECT_FALSE(policy->CanCommitURLRustProcessStateForTesting(id, missing));
+  const GURL opaque("data:text/plain,opaque");
+  policy->GrantCommitOrigin(legacy_id, url::Origin::Create(opaque));
+  EXPECT_FALSE(policy->CanCommitURLRustProcessStateForTesting(id, opaque));
+}
+
 TEST_P(ChildProcessSecurityPolicyTest, RustProcessStateRequestURLParity) {
 #if BUILDFLAG(IS_WIN)
   GTEST_SKIP() << "Request URL parity for Windows file paths is not verified";

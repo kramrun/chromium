@@ -11,12 +11,13 @@ chromium::import! {
 }
 
 use std::collections::hash_map::Entry;
-use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::ffi::OsString;
 
 use common_id_types::ChildProcessId;
 use cxx::UniquePtr;
 
+use crate::compact_map::CompactMap;
 use crate::process_lock::{AssignableProcessLock, StatefulProcessLock};
 use crate::ChildProcessSecurityPolicyImpl;
 
@@ -514,14 +515,14 @@ pub(crate) struct ProcessState {
     process_lock: StatefulProcessLock,
     /// Maps URL schemes to commit/request policies the child process has been
     /// granted. There is no provision for revoking.
-    scheme_map: HashMap<String, CommitRequestPolicy>,
+    scheme_map: CompactMap<Box<str>, CommitRequestPolicy>,
     /// The map of URL origins to commit/request policies the child process has
     /// been granted. There is no provision for revoking.
     ///
-    /// Stored as a BTreeMap rather than a HashMap (which the C++ version uses)
-    /// to avoid dealing with hash functions for url::Origin. The ordering is
-    /// based on the C++ url::Origin comparison operators.
-    origin_map: BTreeMap<UniquePtr<ffi::Origin>, CommitRequestPolicy>,
+    /// Small grants use packed storage, promoting to a BTreeMap for large
+    /// sets. Both representations use the C++ url::Origin ordering, including
+    /// its treatment of opaque origins; no serialized string keys are used.
+    origin_map: CompactMap<UniquePtr<ffi::Origin>, CommitRequestPolicy>,
     /// The set of specific externalfile: URLs the child process is permitted to
     /// request or commit.
     ///
@@ -555,8 +556,8 @@ impl ProcessState {
     fn new() -> Self {
         ProcessState {
             process_lock: StatefulProcessLock::default(),
-            scheme_map: HashMap::new(),
-            origin_map: BTreeMap::new(),
+            scheme_map: CompactMap::default(),
+            origin_map: CompactMap::default(),
             #[cfg(IS_CHROMEOS)]
             request_externalfile_set: BTreeSet::new(),
             #[cfg(IS_CHROMEOS)]
@@ -721,20 +722,26 @@ impl MutableProcessState {
             return;
         }
         // Anything already in `origin_map` must have at least request
-        // permission. Use `or_insert()` to avoid downgrading an existing
+        // permission. Preserve an existing entry to avoid downgrading its
         // `CommitAndRequest` permission.
-        self.0.origin_map.entry(origin).or_insert(CommitRequestPolicy::RequestOnly);
+        self.0.origin_map.insert_if_absent(origin, CommitRequestPolicy::RequestOnly);
     }
 
     fn grant_commit_scheme(&mut self, scheme: &str) {
-        self.0.scheme_map.insert(scheme.to_string(), CommitRequestPolicy::CommitAndRequest);
+        if let Some(permission) = self.0.scheme_map.get_mut(scheme) {
+            *permission = CommitRequestPolicy::CommitAndRequest;
+        } else {
+            self.0.scheme_map.insert(scheme.into(), CommitRequestPolicy::CommitAndRequest);
+        }
     }
 
     fn grant_request_scheme(&mut self, scheme: &str) {
         // Anything already in `scheme_map` must have at least request
-        // permission. Use `or_insert()` to avoid downgrading an existing
+        // permission. Preserve an existing entry to avoid downgrading its
         // `CommitAndRequest` permission.
-        self.0.scheme_map.entry(scheme.to_string()).or_insert(CommitRequestPolicy::RequestOnly);
+        if !self.0.scheme_map.contains_key(scheme) {
+            self.0.scheme_map.insert(scheme.into(), CommitRequestPolicy::RequestOnly);
+        }
     }
 
     #[cfg(IS_CHROMEOS)]

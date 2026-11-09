@@ -11,6 +11,7 @@ chromium::import! {
 }
 
 mod child_process_security_policy_impl;
+mod compact_map;
 mod process_lock;
 mod process_state;
 
