@@ -488,7 +488,7 @@ ParkableStringImpl::AgeOrParkResult ParkableStringImpl::MaybeAgeOrParkString() {
     }
     bool ok = ParkInternal(ParkingMode::kCompress);
     DCHECK(ok);
-    return AgeOrParkResult::kSuccessOrTransientFailure;
+    return AgeOrParkResult::kCompressedOrStartedCompression;
   }
 
   // External references to a string can be long-lived, cannot provide a

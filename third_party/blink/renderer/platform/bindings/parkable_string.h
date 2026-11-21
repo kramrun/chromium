@@ -64,7 +64,8 @@ class PLATFORM_EXPORT ParkableStringImpl
   };
   enum class AgeOrParkResult {
     kSuccessOrTransientFailure,
-    kNonTransientFailure
+    kNonTransientFailure,
+    kCompressedOrStartedCompression
   };
   enum class Age : uint8_t { kYoung = 0, kOld = 1, kVeryOld = 2 };
   enum class CompressionAlgorithm {

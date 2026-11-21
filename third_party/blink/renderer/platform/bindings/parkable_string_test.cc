@@ -1541,6 +1541,41 @@ class ParkableStringTestLessAggressiveMode : public ParkableStringTest {
   base::test::ScopedFeatureList features_;
 };
 
+TEST_P(ParkableStringTestLessAggressiveMode, CompressColdLargeForegroundSources) {
+  base::test::ScopedFeatureList enable(kOptimiumForegroundStringCompression);
+  auto& manager = ParkableStringManager::Instance();
+  manager.SetRendererBackgrounded(false);
+  manager.OnRAILModeChanged(RAILMode::kLoad);
+
+  constexpr size_t kThreshold = 2 * 1024 * 1024;
+  ParkableString small(MakeComplexString(kThreshold - 1).ReleaseImpl());
+  ParkableString first(MakeComplexString(kThreshold).ReleaseImpl());
+  ParkableString second(MakeComplexString(kThreshold + 1).ReleaseImpl());
+  task_environment_.FastForwardBy(ParkableStringManager::kFirstParkingDelay);
+  EXPECT_EQ(ParkableStringImpl::Age::kYoung, first.Impl()->age_for_testing());
+  manager.OnRAILModeChanged(RAILMode::kDefault);
+  task_environment_.FastForwardBy(base::Seconds(4));
+  EXPECT_EQ(ParkableStringImpl::Age::kOld, first.Impl()->age_for_testing());
+  EXPECT_FALSE(first.Impl()->is_parked());
+  EXPECT_FALSE(second.Impl()->is_parked());
+  task_environment_.FastForwardBy(base::Seconds(4));
+  EXPECT_NE(first.Impl()->is_parked(), second.Impl()->is_parked());
+  task_environment_.FastForwardBy(base::Seconds(4));
+  EXPECT_TRUE(first.Impl()->is_parked());
+  EXPECT_TRUE(second.Impl()->is_parked());
+  EXPECT_FALSE(small.Impl()->is_parked());
+  task_environment_.FastForwardBy(base::Seconds(40));
+  EXPECT_FALSE(first.Impl()->is_on_disk());
+  EXPECT_FALSE(second.Impl()->is_on_disk());
+  CheckOnlyCpuCostTaskRemains();
+
+  manager.SetRendererBackgrounded(true);
+  task_environment_.FastForwardBy(2 * ParkableStringManager::AgingInterval());
+  EXPECT_TRUE(small.Impl()->is_parked());
+  EXPECT_TRUE(first.Impl()->is_on_disk());
+  EXPECT_TRUE(second.Impl()->is_on_disk());
+}
+
 TEST_P(ParkableStringTestLessAggressiveMode, NoParkingInForeground) {
   auto& manager = ParkableStringManager::Instance();
   manager.SetRendererBackgrounded(false);

@@ -6,9 +6,11 @@ export CHROME_DESKTOP=optimium.desktop
 enabled_features=ChildProcessSecurityPolicyRust,ChildProcessSecurityPolicyRustProcessState
 case "${OPTIMIUM_MEMORY_MODE:-balanced}" in
   balanced)
-    enabled_features="$enabled_features,OptimiumReleaseConsumedCodeCache"
-    set -- --disable-field-trial-config \
-      --disable-features=PreloadTopChromeWebUI,SpareRendererForSitePerProcess,Prewarm,WebUIOmniboxPopup,WebUIOmniboxAimPopup,WebUIOmniboxFullPopup \
+    enabled_features="$enabled_features,OptimiumForegroundStringCompression,OptimiumReleaseConsumedCodeCache"
+    # Keep young JS heaps compact while leaving the total heap adaptive.
+    set -- '--js-flags=--memory-saver-mode --max-semi-space-size=4' \
+      --disable-field-trial-config \
+      --disable-features=PreloadTopChromeWebUI,SpareRendererForSitePerProcess,Prewarm,WebUIOmniboxPopup,WebUIOmniboxAimPopup,WebUIOmniboxFullPopup,PartitionAllocLargeThreadCacheSize \
       "$@"
     ;;
   standard) ;;

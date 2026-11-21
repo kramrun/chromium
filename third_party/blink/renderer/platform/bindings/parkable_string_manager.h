@@ -6,8 +6,10 @@
 #define THIRD_PARTY_BLINK_RENDERER_PLATFORM_BINDINGS_PARKABLE_STRING_MANAGER_H_
 
 #include <memory>
+#include <optional>
 #include <utility>
 
+#include "base/feature_list.h"
 #include "base/gtest_prod_util.h"
 #include "base/memory/post_delayed_memory_reduction_task.h"
 #include "base/memory/scoped_refptr.h"
@@ -26,6 +28,8 @@
 #include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
 
 namespace blink {
+
+PLATFORM_EXPORT BASE_DECLARE_FEATURE(kOptimiumForegroundStringCompression);
 
 class DiskDataAllocator;
 class ParkableString;
@@ -154,7 +158,8 @@ class PLATFORM_EXPORT ParkableStringManager : public RAILModeObserver,
   void ParkAll(ParkableStringImpl::ParkingMode mode);
   void RecordStatisticsAfter5Minutes() const;
   void AgeStringsAndPark(base::MemoryReductionTaskContext context);
-  void ScheduleAgingTaskIfNeeded();
+  void ScheduleAgingTaskIfNeeded(
+      std::optional<size_t> added_bytes = std::nullopt);
 
   void RecordUnparkingTime(base::TimeDelta unparking_time) {
     total_unparking_time_ += unparking_time;
@@ -195,6 +200,7 @@ class PLATFORM_EXPORT ParkableStringManager : public RAILModeObserver,
   void AssertRemoved(ParkableStringImpl* string);
   void ResetForTesting();
   bool IsPaused() const;
+  bool IsForegroundCompressionOnly() const;
   bool HasPendingWork() const;
   ParkableStringManager();
 

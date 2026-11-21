@@ -34,6 +34,9 @@
 
 namespace blink {
 
+BASE_FEATURE(kOptimiumForegroundStringCompression,
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
 struct ParkableStringManager::Statistics {
   size_t original_size;
   size_t uncompressed_size;
@@ -48,6 +51,11 @@ struct ParkableStringManager::Statistics {
 
 namespace {
 
+// Keep foreground compression work for sources large enough to repay its cost.
+constexpr size_t kMinForegroundStringBytes = 2 * 1024 * 1024;
+// A visible renderer only visits large strings after loading and starts at most
+// one compression job per tick. Two ticks without a read make a source cold.
+constexpr base::TimeDelta kForegroundAgingInterval = base::Seconds(4);
 constexpr char kConsumerName[] = "ParkableStringManager";
 
 constexpr base::MemoryConsumerTraits kMemoryConsumerTraits(
@@ -126,10 +134,15 @@ ParkableStringManager::~ParkableStringManager() = default;
 
 void ParkableStringManager::SetRendererBackgrounded(bool backgrounded) {
   DCHECK(IsMainThread());
-  bool was_paused = IsPaused();
+  if (backgrounded == backgrounded_) {
+    return;
+  }
+  // Returning to the background also makes small and already compressed
+  // strings eligible again.
+  const bool resume =
+      IsPaused() || (backgrounded && IsForegroundCompressionOnly());
   backgrounded_ = backgrounded;
-
-  if (was_paused && !IsPaused() && HasPendingWork()) {
+  if (resume) {
     ScheduleAgingTaskIfNeeded();
   }
 }
@@ -139,7 +152,7 @@ void ParkableStringManager::OnRAILModeChanged(RAILMode rail_mode) {
   bool was_paused = IsPaused();
   rail_mode_ = rail_mode;
 
-  if (was_paused && !IsPaused() && HasPendingWork()) {
+  if (was_paused && !IsPaused()) {
     ScheduleAgingTaskIfNeeded();
   }
 }
@@ -192,7 +205,7 @@ scoped_refptr<ParkableStringImpl> ParkableStringManager::Add(
     std::unique_ptr<SecureStringDigest> digest) {
   DCHECK(IsMainThread());
 
-  ScheduleAgingTaskIfNeeded();
+  ScheduleAgingTaskIfNeeded(string->CharactersSizeInBytes());
 
   auto string_impl = string;
   if (!digest) {
@@ -339,7 +352,7 @@ void ParkableStringManager::OnUnparked(ParkableStringImpl* was_parked_string,
   DCHECK(was_parked_string->may_be_parked());
   StringMap* from_map = was_on_disk ? &on_disk_strings_ : &parked_strings_;
   MoveString(was_parked_string, from_map, &unparked_strings_);
-  ScheduleAgingTaskIfNeeded();
+  ScheduleAgingTaskIfNeeded(was_parked_string->CharactersSizeInBytes());
 }
 
 void ParkableStringManager::ParkAll(ParkableStringImpl::ParkingMode mode) {
@@ -401,27 +414,39 @@ void ParkableStringManager::AgeStringsAndPark(
 
   TRACE_EVENT0("blink", "ParkableStringManager::AgeStringsAndPark");
 
+  const bool foreground = IsForegroundCompressionOnly();
   if (context == base::MemoryReductionTaskContext::kProactive) {
-    ParkAll(ParkableStringImpl::ParkingMode::kCompressThenToDisk);
+    if (!foreground) {
+      ParkAll(ParkableStringImpl::ParkingMode::kCompressThenToDisk);
+    }
     // Don't reschedule, because we don't want to cause any further task
     // execution.
     return;
   }
 
   auto unparked = EnumerateStrings(unparked_strings_);
-  auto parked = EnumerateStrings(parked_strings_);
+  // Snapshot before parking changes either map. Foreground work stays in RAM.
+  auto parked = foreground ? Vector<ParkableStringImpl*>()
+                           : EnumerateStrings(parked_strings_);
 
+  using AgeResult = ParkableStringImpl::AgeOrParkResult;
   bool can_make_progress = false;
   for (ParkableStringImpl* str : unparked) {
-    if (str->MaybeAgeOrParkString() ==
-        ParkableStringImpl::AgeOrParkResult::kSuccessOrTransientFailure) {
+    if (foreground && str->CharactersSizeInBytes() < kMinForegroundStringBytes) {
+      continue;
+    }
+    const auto result = str->MaybeAgeOrParkString();
+    if (result != AgeResult::kNonTransientFailure) {
       can_make_progress = true;
+    }
+    // Spread compression jobs across ticks while the user is using the page.
+    if (foreground && result == AgeResult::kCompressedOrStartedCompression) {
+      break;
     }
   }
 
   for (ParkableStringImpl* str : parked) {
-    if (str->MaybeAgeOrParkString() ==
-        ParkableStringImpl::AgeOrParkResult::kSuccessOrTransientFailure) {
+    if (str->MaybeAgeOrParkString() != AgeResult::kNonTransientFailure) {
       can_make_progress = true;
     }
   }
@@ -435,26 +460,31 @@ void ParkableStringManager::AgeStringsAndPark(
   // we need to age and park strings after the renderer becomes idle, meaning
   // that this has to run when the idle tasks are not. As a consequence, it
   // is important to make sure that this will not reschedule tasks forever.
-  bool reschedule = HasPendingWork() && can_make_progress;
-  if (reschedule)
+  if (can_make_progress) {
     ScheduleAgingTaskIfNeeded();
+  }
 }
 
-void ParkableStringManager::ScheduleAgingTaskIfNeeded() {
-  if (IsPaused()) {
+void ParkableStringManager::ScheduleAgingTaskIfNeeded(
+    std::optional<size_t> added_bytes) {
+  if (has_pending_aging_task_ || IsPaused()) {
     return;
   }
 
-  if (has_pending_aging_task_)
+  if (added_bytes ? IsForegroundCompressionOnly() &&
+                        *added_bytes < kMinForegroundStringBytes
+                  : !HasPendingWork()) {
     return;
+  }
 
   base::TimeDelta delay = AgingInterval();
-  // Delay the first aging tick, since this renderer may be short-lived, we do
-  // not want to waste CPU time compressing memory that is going away soon.
-  if (!first_string_aging_was_delayed_) {
+  if (IsForegroundCompressionOnly()) {
+    delay = kForegroundAgingInterval;
+  } else if (!first_string_aging_was_delayed_) {
+    // Avoid compressing sources in short-lived background renderers.
     delay = kFirstParkingDelay;
-    first_string_aging_was_delayed_ = true;
   }
+  first_string_aging_was_delayed_ = true;
 
   PostDelayedMemoryReductionTask(
       task_runner_, FROM_HERE,
@@ -585,10 +615,25 @@ bool ParkableStringManager::IsPaused() const {
     return false;
   }
 
-  return !(backgrounded_ && (rail_mode_ != RAILMode::kLoad));
+  return rail_mode_ == RAILMode::kLoad ||
+         (!backgrounded_ &&
+          !base::FeatureList::IsEnabled(kOptimiumForegroundStringCompression));
+}
+
+bool ParkableStringManager::IsForegroundCompressionOnly() const {
+  return !backgrounded_ &&
+         base::FeatureList::IsEnabled(features::kLessAggressiveParkableString);
 }
 
 bool ParkableStringManager::HasPendingWork() const {
+  if (IsForegroundCompressionOnly()) {
+    for (const auto& entry : unparked_strings_) {
+      if (entry.value->CharactersSizeInBytes() >= kMinForegroundStringBytes) {
+        return true;
+      }
+    }
+    return false;
+  }
   return !unparked_strings_.empty() || !parked_strings_.empty();
 }
 
