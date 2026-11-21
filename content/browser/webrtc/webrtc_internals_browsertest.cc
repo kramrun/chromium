@@ -378,12 +378,11 @@ class WebRtcInternalsBrowserTest : public ContentBrowserTest {
                                         "'] != null"));
 
     std::stringstream ss;
-    ss << "var dp = peerConnectionDataStore['" << pc_id
+    ss << "var series = peerConnectionDataStore['" << pc_id
        << "']"
           ".getDataSeries('"
-       << graph_id << "').dataPoints_[" << index
-       << "];"
-          "dp.value.toString()";
+       << graph_id << "');"
+       << "JSON.parse(series.toJSON().values)[" << index << "].toString()";
     EXPECT_EQ(value, EvalJs(shell(), ss.str()));
   }
 };

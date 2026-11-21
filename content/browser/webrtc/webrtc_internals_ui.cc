@@ -11,6 +11,7 @@
 #include "content/public/browser/web_ui.h"
 #include "content/public/browser/web_ui_data_source.h"
 #include "content/public/common/url_constants.h"
+#include "services/network/public/mojom/content_security_policy.mojom.h"
 
 namespace content {
 namespace {
@@ -19,6 +20,10 @@ void CreateAndAddWebRTCInternalsHTMLSource(BrowserContext* browser_context) {
   WebUIDataSource* source = WebUIDataSource::CreateAndAdd(
       browser_context, kChromeUIWebRTCInternalsHost);
 
+  // Only this diagnostics page uses a bundled Wasm module for numeric stats.
+  source->OverrideContentSecurityPolicy(
+      network::mojom::CSPDirectiveName::ScriptSrc,
+      "script-src chrome://resources 'self' 'wasm-unsafe-eval';");
   source->UseStringsJs();
   source->AddResourcePaths(kWebrtcInternalsResources);
   source->SetDefaultResource(IDR_WEBRTC_INTERNALS_WEBRTC_INTERNALS_HTML);
