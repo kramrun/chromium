@@ -64,6 +64,9 @@ class PLATFORM_EXPORT ScriptCachedMetadataHandler
   String Encoding() const override;
   ServingSource GetServingSource() const override;
   void DidUseCodeCache(bool was_rejected) override;
+  void SetGeneratedCodeCache(CodeCacheHost* host,
+                             uint32_t data_type_id,
+                             base::span<const uint8_t> data) override;
   void OnMemoryDump(WebProcessMemoryDump* pmd,
                     const String& dump_prefix) const override;
   size_t GetCodeCacheSize() const override;

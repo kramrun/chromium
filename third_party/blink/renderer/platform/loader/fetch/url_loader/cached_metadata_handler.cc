@@ -7,6 +7,7 @@
 #include <utility>
 
 #include "base/debug/dump_without_crashing.h"
+#include "base/numerics/checked_math.h"
 #include "base/time/time.h"
 #include "mojo/public/cpp/bindings/remote.h"
 #include "third_party/blink/public/mojom/fetch/fetch_api_request.mojom-blink.h"
@@ -14,6 +15,7 @@
 #include "third_party/blink/public/platform/platform.h"
 #include "third_party/blink/public/platform/web_security_origin.h"
 #include "third_party/blink/public/platform/web_url.h"
+#include "third_party/blink/renderer/platform/loader/fetch/cached_metadata.h"
 #include "third_party/blink/renderer/platform/loader/fetch/code_cache_host.h"
 #include "third_party/blink/renderer/platform/loader/fetch/resource_response.h"
 #include "third_party/blink/renderer/platform/runtime_enabled_features.h"
@@ -26,6 +28,10 @@ class CachedMetadataSenderImpl : public CachedMetadataSender {
   CachedMetadataSenderImpl(const ResourceResponse&,
                            mojom::blink::CodeCacheType);
   ~CachedMetadataSenderImpl() override = default;
+
+  bool TrySendGeneratedCodeCache(CodeCacheHost*,
+                                 uint32_t data_type_id,
+                                 base::span<const uint8_t> data) override;
 
   void Send(CodeCacheHost*, mojo_base::BigBuffer) override;
   bool IsServedFromCacheStorage() override { return false; }
@@ -56,6 +62,26 @@ void CachedMetadataSenderImpl::Send(CodeCacheHost* code_cache_host,
   // interface.
   code_cache_host->get()->DidGenerateCacheableMetadata(
       code_cache_type_, response_url_, response_time_, std::move(data));
+}
+
+bool CachedMetadataSenderImpl::TrySendGeneratedCodeCache(
+    CodeCacheHost* host,
+    uint32_t data_type_id,
+    base::span<const uint8_t> data) {
+  if (!host || !response_url_.ProtocolIsInHttpFamily() ||
+      code_cache_type_ != mojom::blink::CodeCacheType::kJavascript) {
+    return false;
+  }
+  // Write directly into the IPC buffer. The V8 buffer stays valid for this
+  // call, so there is no need for an intermediate copy in the renderer.
+  const auto header = CachedMetadata::GetSerializedDataHeader(data_type_id, 0);
+  mojo_base::BigBuffer buffer(
+      base::CheckAdd(data.size(), header.size()).ValueOrDie());
+  auto [prefix, payload] = base::span(buffer).split_at(header.size());
+  prefix.copy_from_nonoverlapping(base::span(header));
+  payload.copy_from_nonoverlapping(data);
+  Send(host, std::move(buffer));
+  return true;
 }
 
 // This is a CachedMetadataSender implementation that does nothing.

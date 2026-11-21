@@ -23,7 +23,7 @@ BASE_FEATURE(kOptimiumReleaseConsumedCodeCache,
 
 namespace {
 // Retain small entries for another compilation from the same live resource.
-constexpr size_t kLargeConsumedCodeCacheBytes = 2 * 1024 * 1024;
+constexpr size_t kLargeCodeCacheBytes = 2 * 1024 * 1024;
 }  // namespace
 
 ScriptCachedMetadataHandler::ScriptCachedMetadataHandler(
@@ -51,6 +51,24 @@ void ScriptCachedMetadataHandler::SetCachedMetadata(
     return;
   cached_metadata_ = CachedMetadata::Create(data_type_id, data);
   CommitToPersistentStorage(code_cache_host);
+}
+
+void ScriptCachedMetadataHandler::SetGeneratedCodeCache(
+    CodeCacheHost* host,
+    uint32_t data_type_id,
+    base::span<const uint8_t> data) {
+  DCHECK(!cached_metadata_);
+  if (cached_metadata_discarded_) {
+    return;
+  }
+  if (data.size() >= kLargeCodeCacheBytes && !HashRequired() &&
+      base::FeatureList::IsEnabled(kOptimiumReleaseConsumedCodeCache) &&
+      sender_ && sender_->TrySendGeneratedCodeCache(host, data_type_id, data)) {
+    // Keep later heat-check timestamps from overwriting the bytecode on disk.
+    cached_metadata_discarded_ = true;
+    return;
+  }
+  SetCachedMetadata(host, data_type_id, data);
 }
 
 void ScriptCachedMetadataHandler::ClearCachedMetadata(
@@ -182,7 +200,7 @@ ScriptCachedMetadataHandler::GetServingSource() const {
 }
 
 void ScriptCachedMetadataHandler::DidUseCodeCache(bool was_rejected) {
-  if (!was_rejected && GetCodeCacheSize() >= kLargeConsumedCodeCacheBytes &&
+  if (!was_rejected && GetCodeCacheSize() >= kLargeCodeCacheBytes &&
       base::FeatureList::IsEnabled(kOptimiumReleaseConsumedCodeCache)) {
     // V8 has consumed this serialized copy. Other consumers keep their own
     // references. Ignore later timestamp writes from this resource so a

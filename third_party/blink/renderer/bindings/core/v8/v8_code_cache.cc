@@ -586,7 +586,7 @@ static void ProduceCacheInternal(
             V8CodeCache::SetMetadataType::kCodeCache);
         cache_handler->ClearCachedMetadata(
             code_cache_host, CachedMetadataHandler::kClearLocally);
-        cache_handler->SetCachedMetadata(
+        cache_handler->SetGeneratedCodeCache(
             code_cache_host, V8CodeCache::TagForCodeCache(cache_handler),
             ToSpan(*cached_data));
         base::UmaHistogramMicrosecondsTimes("V8.ProduceCodeCacheMicroseconds",

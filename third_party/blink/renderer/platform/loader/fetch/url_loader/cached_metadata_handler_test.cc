@@ -31,14 +31,15 @@ class MockGeneratedCodeCache
     : public network::mojom::blink::CacheStorageSideDataWriter {
  public:
   const Vector<KURL>& CachedURLs() const { return cached_urls_; }
+  const mojo_base::BigBuffer& LastWrite() const { return last_write_; }
   size_t CacheStorageWriteCount() const { return cache_storage_write_count_; }
 
   void CacheMetadata(mojom::CodeCacheType cache_type,
                      const KURL& url,
                      base::Time,
-                     const uint8_t*,
-                     size_t) {
+                     mojo_base::BigBuffer data) {
     cached_urls_.push_back(url);
+    last_write_ = std::move(data);
   }
 
   void BindSideDataWriter(ResourceResponse& response) {
@@ -57,6 +58,7 @@ class MockGeneratedCodeCache
 
  private:
   Vector<KURL> cached_urls_;
+  mojo_base::BigBuffer last_write_;
   size_t cache_storage_write_count_ = 0;
   mojo::ReceiverSet<network::mojom::blink::CacheStorageSideDataWriter>
       receivers_;
@@ -76,8 +78,8 @@ class CodeCacheHostMockImpl : public mojom::blink::CodeCacheHost {
                                     const KURL& url,
                                     base::Time expected_response_time,
                                     mojo_base::BigBuffer data) override {
-    sim_->CacheMetadata(cache_type, url, expected_response_time, data.data(),
-                        data.size());
+    sim_->CacheMetadata(cache_type, url, expected_response_time,
+                        std::move(data));
   }
   void DidGenerateSourceKeyedCacheableMetadata(
       const blink::Vector<uint8_t>& script_hash,
@@ -155,6 +157,77 @@ TEST_F(CachedMetadataHandlerTest, ReleaseLargeConsumedCodeCacheLocally) {
   load(small, kThreshold - 1);
   small->DidUseCodeCache(/*was_rejected=*/false);
   EXPECT_EQ(small->GetCodeCacheSize(), kThreshold - 1);
+}
+
+TEST_F(CachedMetadataHandlerTest, DirectWritePreservesGeneratedCodeCache) {
+  base::test::ScopedFeatureList feature(kOptimiumReleaseConsumedCodeCache);
+  ResourceResponse response = CreateTestResourceResponse();
+  auto* handler = MakeGarbageCollected<ScriptCachedMetadataHandler>(
+      Utf8Encoding(),
+      CachedMetadataSender::Create(
+          response, mojom::CodeCacheType::kJavascript,
+          SecurityOrigin::Create(response.CurrentRequestUrl())));
+  MockGeneratedCodeCache disk;
+  CodeCacheHostMockImpl impl(&disk);
+  mojo::Remote<mojom::blink::CodeCacheHost> remote;
+  mojo::Receiver<mojom::blink::CodeCacheHost> receiver(
+      &impl, remote.BindNewPipeAndPassReceiver());
+  auto host = CodeCacheHost::Create(std::move(remote));
+
+  constexpr uint32_t kType = 1234;
+  Vector<uint8_t> payload(2 * 1024 * 1024);
+  for (wtf_size_t i = 0; i < payload.size(); ++i) {
+    payload[i] = static_cast<uint8_t>(i);
+  }
+  handler->SetGeneratedCodeCache(host.get(), kType, payload);
+  EXPECT_EQ(handler->GetCodeCacheSize(), 0u);
+  constexpr uint8_t kTimestamp[] = {1};
+  handler->SetCachedMetadata(host.get(), kType + 1, kTimestamp);
+  receiver.FlushForTesting();
+  ASSERT_EQ(disk.CachedURLs().size(), 1u);
+  auto expected = CachedMetadata::Create(kType, payload);
+  EXPECT_TRUE(base::span(disk.LastWrite()) == expected->SerializedData());
+}
+
+TEST_F(CachedMetadataHandlerTest, KeepGeneratedCodeCacheWithoutHost) {
+  base::test::ScopedFeatureList feature(kOptimiumReleaseConsumedCodeCache);
+  ResourceResponse response = CreateTestResourceResponse();
+  auto* handler = MakeGarbageCollected<ScriptCachedMetadataHandler>(
+      Utf8Encoding(),
+      CachedMetadataSender::Create(
+          response, mojom::CodeCacheType::kJavascript,
+          SecurityOrigin::Create(response.CurrentRequestUrl())));
+  Vector<uint8_t> payload(2 * 1024 * 1024);
+  handler->SetGeneratedCodeCache(nullptr, 1234, payload);
+  EXPECT_EQ(handler->GetCodeCacheSize(),
+            payload.size() + sizeof(CachedMetadataHeader));
+}
+
+TEST_F(CachedMetadataHandlerTest, GeneratedCodePreservesHashedFormat) {
+  base::test::ScopedFeatureList feature(kOptimiumReleaseConsumedCodeCache);
+  ResourceResponse response = CreateTestResourceResponse();
+  auto* handler = MakeGarbageCollected<ScriptCachedMetadataHandlerWithHashing>(
+      Utf8Encoding(),
+      CachedMetadataSender::Create(
+          response, mojom::CodeCacheType::kJavascript,
+          SecurityOrigin::Create(response.CurrentRequestUrl())));
+  MockGeneratedCodeCache disk;
+  CodeCacheHostMockImpl impl(&disk);
+  mojo::Remote<mojom::blink::CodeCacheHost> remote;
+  mojo::Receiver<mojom::blink::CodeCacheHost> receiver(
+      &impl, remote.BindNewPipeAndPassReceiver());
+  auto host = CodeCacheHost::Create(std::move(remote));
+  const ParkableString source(String("function run() { return 1; }").Impl());
+  handler->Check(host.get(), source);
+
+  Vector<uint8_t> payload(2 * 1024 * 1024);
+  handler->SetGeneratedCodeCache(host.get(), 1234, payload);
+  receiver.FlushForTesting();
+  EXPECT_EQ(handler->GetCodeCacheSize(),
+            payload.size() + sizeof(CachedMetadataHeader));
+  auto expected = handler->GetSerializedCachedMetadata();
+  EXPECT_GT(expected.size(), handler->GetCodeCacheSize());
+  EXPECT_TRUE(base::span(disk.LastWrite()) == base::span(expected));
 }
 
 TEST_F(CachedMetadataHandlerTest, SendsMetadataToPlatform) {
