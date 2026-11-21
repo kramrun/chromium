@@ -56,6 +56,9 @@ constexpr size_t kMinForegroundStringBytes = 2 * 1024 * 1024;
 // A visible renderer only visits large strings after loading and starts at most
 // one compression job per tick. Two ticks without a read make a source cold.
 constexpr base::TimeDelta kForegroundAgingInterval = base::Seconds(4);
+// A single script this large can occupy more RAM than a small page's
+// entire set of sources. Age it on the normal background schedule.
+constexpr size_t kLargeBackgroundStringBytes = 8 * 1024 * 1024;
 constexpr char kConsumerName[] = "ParkableStringManager";
 
 constexpr base::MemoryConsumerTraits kMemoryConsumerTraits(
@@ -142,7 +145,7 @@ void ParkableStringManager::SetRendererBackgrounded(bool backgrounded) {
   const bool resume =
       IsPaused() || (backgrounded && IsForegroundCompressionOnly());
   backgrounded_ = backgrounded;
-  if (resume) {
+  if (resume || (!backgrounded && initial_background_delay_pending_)) {
     ScheduleAgingTaskIfNeeded();
   }
 }
@@ -406,7 +409,8 @@ void ParkableStringManager::RecordStatisticsAfter5Minutes() const {
 void ParkableStringManager::AgeStringsAndPark(
     base::MemoryReductionTaskContext context) {
   DCHECK(CompressionEnabled());
-  has_pending_aging_task_ = false;
+  aging_deadline_ = {};
+  initial_background_delay_pending_ = false;
 
   if (IsPaused()) {
     return;
@@ -467,7 +471,8 @@ void ParkableStringManager::AgeStringsAndPark(
 
 void ParkableStringManager::ScheduleAgingTaskIfNeeded(
     std::optional<size_t> added_bytes) {
-  if (has_pending_aging_task_ || IsPaused()) {
+  if (IsPaused() ||
+      (!aging_deadline_.is_null() && !initial_background_delay_pending_)) {
     return;
   }
 
@@ -480,18 +485,32 @@ void ParkableStringManager::ScheduleAgingTaskIfNeeded(
   base::TimeDelta delay = AgingInterval();
   if (IsForegroundCompressionOnly()) {
     delay = kForegroundAgingInterval;
-  } else if (!first_string_aging_was_delayed_) {
-    // Avoid compressing sources in short-lived background renderers.
-    delay = kFirstParkingDelay;
+  } else if (!first_string_aging_was_delayed_ ||
+             initial_background_delay_pending_) {
+    const bool large_source =
+        backgrounded_ &&
+        base::FeatureList::IsEnabled(kOptimiumForegroundStringCompression) &&
+        (added_bytes ? *added_bytes >= kLargeBackgroundStringBytes
+                     : HasUnparkedStringOfSize(kLargeBackgroundStringBytes));
+    if (!large_source) {
+      delay = kFirstParkingDelay;
+    }
   }
+  const auto deadline = base::TimeTicks::Now() + delay;
+  if (!aging_deadline_.is_null() && aging_deadline_ <= deadline) {
+    return;
+  }
+  // A large response or a foreground transition can shorten an existing
+  // startup delay. Cancel the old callback so it cannot age a string twice.
+  aging_tasks_.InvalidateWeakPtrs();
+  aging_deadline_ = deadline;
+  initial_background_delay_pending_ = delay == kFirstParkingDelay;
   first_string_aging_was_delayed_ = true;
-
   PostDelayedMemoryReductionTask(
       task_runner_, FROM_HERE,
       blink::BindOnce(&ParkableStringManager::AgeStringsAndPark,
-                      blink::Unretained(this)),
+                      aging_tasks_.GetWeakPtr()),
       delay);
-  has_pending_aging_task_ = true;
 }
 
 void ParkableStringManager::OnUpdateMemoryLimit() {
@@ -589,7 +608,9 @@ void ParkableStringManager::AssertRemoved(ParkableStringImpl* string) {
 }
 
 void ParkableStringManager::ResetForTesting() {
-  has_pending_aging_task_ = false;
+  aging_tasks_.InvalidateWeakPtrs();
+  aging_deadline_ = {};
+  initial_background_delay_pending_ = false;
   has_posted_unparking_time_accounting_task_ = false;
   memory_consumer_registration_.emplace(
       kConsumerName, kMemoryConsumerTraits, this,
@@ -627,14 +648,17 @@ bool ParkableStringManager::IsForegroundCompressionOnly() const {
 
 bool ParkableStringManager::HasPendingWork() const {
   if (IsForegroundCompressionOnly()) {
-    for (const auto& entry : unparked_strings_) {
-      if (entry.value->CharactersSizeInBytes() >= kMinForegroundStringBytes) {
-        return true;
-      }
-    }
-    return false;
+    return HasUnparkedStringOfSize(kMinForegroundStringBytes);
   }
   return !unparked_strings_.empty() || !parked_strings_.empty();
+}
+
+bool ParkableStringManager::HasUnparkedStringOfSize(
+    size_t minimum_bytes) const {
+  return std::ranges::any_of(
+      unparked_strings_, [minimum_bytes](const auto& entry) {
+        return entry.value->CharactersSizeInBytes() >= minimum_bytes;
+      });
 }
 
 bool ParkableStringManager::IsOnParkedMapForTesting(

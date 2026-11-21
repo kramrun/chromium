@@ -435,7 +435,10 @@ class CORE_EXPORT BackgroundResourceScriptStreamer : public ScriptStreamer {
   std::unique_ptr<BackgroundResponseProcessorFactory>
   CreateBackgroundResponseProcessorFactory();
 
-  bool HasDecodedData() const { return !!result_; }
+  bool HasDecodedData() const {
+    // An empty response can have a null string and still carry its digest.
+    return result_ && (!result_->decoded_data.IsNull() || result_->digest);
+  }
   bool HasConsumeCodeCacheTask() const {
     return result_ && result_->consume_code_cache_task;
   }

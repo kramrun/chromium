@@ -1576,6 +1576,37 @@ TEST_P(ParkableStringTestLessAggressiveMode, CompressColdLargeForegroundSources)
   EXPECT_TRUE(second.Impl()->is_on_disk());
 }
 
+TEST_P(ParkableStringTestLessAggressiveMode, LargeSourceShortensInitialDelay) {
+  base::test::ScopedFeatureList enable(kOptimiumForegroundStringCompression);
+  auto& manager = ParkableStringManager::Instance();
+  manager.SetRendererBackgrounded(true);
+  manager.OnRAILModeChanged(RAILMode::kDefault);
+  ParkableString small(MakeLargeString().ReleaseImpl());
+  task_environment_.FastForwardBy(ParkableStringManager::AgingInterval());
+  EXPECT_EQ(ParkableStringImpl::Age::kYoung, small.Impl()->age_for_testing());
+  ParkableString large(MakeComplexString(8 * 1024 * 1024).ReleaseImpl());
+  task_environment_.FastForwardBy(ParkableStringManager::AgingInterval());
+  EXPECT_EQ(ParkableStringImpl::Age::kOld, large.Impl()->age_for_testing());
+  task_environment_.FastForwardBy(ParkableStringManager::AgingInterval());
+  EXPECT_TRUE(large.Impl()->is_parked());
+}
+
+TEST_P(ParkableStringTestLessAggressiveMode, ForegroundReschedulesFirstTick) {
+  base::test::ScopedFeatureList enable(kOptimiumForegroundStringCompression);
+  auto& manager = ParkableStringManager::Instance();
+  manager.SetRendererBackgrounded(true);
+  manager.OnRAILModeChanged(RAILMode::kDefault);
+  ParkableString source(MakeComplexString(2 * 1024 * 1024).ReleaseImpl());
+  manager.SetRendererBackgrounded(false);
+  task_environment_.FastForwardBy(base::Seconds(4));
+  EXPECT_EQ(ParkableStringImpl::Age::kOld, source.Impl()->age_for_testing());
+  task_environment_.FastForwardBy(base::Seconds(4));
+  EXPECT_TRUE(source.Impl()->is_parked());
+  task_environment_.FastForwardBy(ParkableStringManager::kFirstParkingDelay);
+  EXPECT_FALSE(source.Impl()->is_on_disk());
+  CheckOnlyCpuCostTaskRemains();
+}
+
 TEST_P(ParkableStringTestLessAggressiveMode, NoParkingInForeground) {
   auto& manager = ParkableStringManager::Instance();
   manager.SetRendererBackgrounded(false);

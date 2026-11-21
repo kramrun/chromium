@@ -8,7 +8,7 @@ case "${OPTIMIUM_MEMORY_MODE:-balanced}" in
   balanced)
     enabled_features="$enabled_features,OptimiumForegroundStringCompression,OptimiumReleaseConsumedCodeCache"
     # Keep young JS heaps compact while leaving the total heap adaptive.
-    set -- '--js-flags=--memory-saver-mode --max-semi-space-size=4' \
+    set -- '--js-flags=--memory-saver-mode --max-semi-space-size=4 --invocation-count-for-feedback-allocation=32' \
       --disable-field-trial-config \
       --disable-features=PreloadTopChromeWebUI,SpareRendererForSitePerProcess,Prewarm,WebUIOmniboxPopup,WebUIOmniboxAimPopup,WebUIOmniboxFullPopup,PartitionAllocLargeThreadCacheSize \
       "$@"

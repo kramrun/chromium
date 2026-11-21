@@ -1840,7 +1840,10 @@ TEST_P(BackgroundResourceScriptStreamerTest, EnoughData) {
   RunUntilResourceLoaded();
   // ScriptStreamer must have been created.
   ScriptStreamer* streamer = TakeScriptStreamer();
-  EXPECT_TRUE(streamer);
+  ASSERT_TRUE(streamer);
+  EXPECT_FALSE(static_cast<BackgroundResourceScriptStreamer*>(streamer)
+                   ->HasDecodedData());
+  EXPECT_EQ(String(kLargeEnoughScript), resource_->GetSourceText().ToString());
 }
 
 TEST_P(BackgroundResourceScriptStreamerTest, EnoughDataInFirstChunk) {

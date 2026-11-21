@@ -13,6 +13,7 @@
 #include "base/gtest_prod_util.h"
 #include "base/memory/post_delayed_memory_reduction_task.h"
 #include "base/memory/scoped_refptr.h"
+#include "base/memory/weak_ptr.h"
 #include "base/memory_coordinator/async_memory_consumer_registration.h"
 #include "base/memory_coordinator/memory_consumer.h"
 #include "base/task/single_thread_task_runner.h"
@@ -99,6 +100,8 @@ class PLATFORM_EXPORT ParkableStringManager : public RAILModeObserver,
   // use-case. The spare renderer might have a long lifetime on first addition
   // of a parkable string but it does not indicate a higher chance of the
   // renderer staying alive for a long time.
+  // With foreground compression enabled, large sources or activation can
+  // shorten a pending startup delay.
   constexpr static base::TimeDelta kFirstParkingDelay{base::Seconds(60)};
 
   static const char* kAllocatorDumpName;
@@ -202,6 +205,7 @@ class PLATFORM_EXPORT ParkableStringManager : public RAILModeObserver,
   bool IsPaused() const;
   bool IsForegroundCompressionOnly() const;
   bool HasPendingWork() const;
+  bool HasUnparkedStringOfSize(size_t minimum_bytes) const;
   ParkableStringManager();
 
   // Arbitrarily chosen, was shown to not regress metrics in a field experiment
@@ -216,7 +220,7 @@ class PLATFORM_EXPORT ParkableStringManager : public RAILModeObserver,
 
   bool backgrounded_ = false;
   RAILMode rail_mode_ = RAILMode::kDefault;
-  bool has_pending_aging_task_ = false;
+  bool initial_background_delay_pending_ = false;
   bool has_posted_unparking_time_accounting_task_ = false;
   base::TimeDelta total_unparking_time_;
   base::TimeDelta total_parking_thread_time_;
@@ -234,6 +238,9 @@ class PLATFORM_EXPORT ParkableStringManager : public RAILModeObserver,
 
   std::optional<base::AsyncMemoryConsumerRegistration>
       memory_consumer_registration_;
+
+  base::TimeTicks aging_deadline_;
+  base::WeakPtrFactory<ParkableStringManager> aging_tasks_{this};
 
   friend class ParkableStringTest;
   FRIEND_TEST_ALL_PREFIXES(ParkableStringTest, SynchronousCompression);

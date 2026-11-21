@@ -2602,7 +2602,9 @@ ParkableString BackgroundResourceScriptStreamer::TakeDecodedData() {
   CHECK(result_);
   CHECK(suppressed_reason_ == NotStreamingReason::kInvalid ||
         suppressed_reason_ == NotStreamingReason::kHasCodeCacheBackground);
-  return ParkableString(result_->decoded_data.Impl(),
+  // The resource now owns the decoded source. An extra StringImpl reference
+  // here would prevent it from being parked while the streamer is retained.
+  return ParkableString(result_->decoded_data.ReleaseImpl(),
                         std::move(result_->digest));
 }
 
