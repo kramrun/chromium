@@ -18,6 +18,14 @@
 
 namespace blink {
 
+BASE_FEATURE(kOptimiumReleaseConsumedCodeCache,
+             base::FEATURE_DISABLED_BY_DEFAULT);
+
+namespace {
+// Retain small entries for another compilation from the same live resource.
+constexpr size_t kLargeConsumedCodeCacheBytes = 2 * 1024 * 1024;
+}  // namespace
+
 ScriptCachedMetadataHandler::ScriptCachedMetadataHandler(
     const TextEncoding& encoding,
     std::unique_ptr<CachedMetadataSender> sender)
@@ -171,6 +179,16 @@ ScriptCachedMetadataHandler::GetServingSource() const {
   CHECK(sender_);
   return sender_->IsServedFromCacheStorage() ? ServingSource::kCacheStorage
                                              : ServingSource::kOther;
+}
+
+void ScriptCachedMetadataHandler::DidUseCodeCache(bool was_rejected) {
+  if (!was_rejected && GetCodeCacheSize() >= kLargeConsumedCodeCacheBytes &&
+      base::FeatureList::IsEnabled(kOptimiumReleaseConsumedCodeCache)) {
+    // V8 has consumed this serialized copy. Other consumers keep their own
+    // references. Ignore later timestamp writes from this resource so a
+    // repeated execution cannot replace the reusable bytecode on disk.
+    ClearCachedMetadata(/*code_cache_host=*/nullptr, kDiscardLocally);
+  }
 }
 
 void ScriptCachedMetadataHandler::OnMemoryDump(

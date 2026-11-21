@@ -3,8 +3,10 @@
 set -eu
 app_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 export CHROME_DESKTOP=optimium.desktop
+enabled_features=ChildProcessSecurityPolicyRust,ChildProcessSecurityPolicyRustProcessState
 case "${OPTIMIUM_MEMORY_MODE:-balanced}" in
   balanced)
+    enabled_features="$enabled_features,OptimiumReleaseConsumedCodeCache"
     set -- --disable-field-trial-config \
       --disable-features=PreloadTopChromeWebUI,SpareRendererForSitePerProcess,Prewarm,WebUIOmniboxPopup,WebUIOmniboxAimPopup,WebUIOmniboxFullPopup \
       "$@"
@@ -18,5 +20,5 @@ if [ ! -x "$browser" ]; then
 fi
 exec "$browser" \
   "--user-data-dir=${XDG_CONFIG_HOME:-$HOME/.config}/optimium" \
-  --enable-features=ChildProcessSecurityPolicyRust,ChildProcessSecurityPolicyRustProcessState \
+  "--enable-features=$enabled_features" \
   "$@"

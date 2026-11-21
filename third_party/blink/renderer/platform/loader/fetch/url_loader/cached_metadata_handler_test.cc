@@ -5,6 +5,7 @@
 #include "third_party/blink/renderer/platform/loader/fetch/url_loader/cached_metadata_handler.h"
 
 #include "base/memory/raw_ptr.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/task_environment.h"
 #include "components/persistent_cache/pending_backend.h"
 #include "mojo/public/cpp/bindings/receiver.h"
@@ -121,6 +122,40 @@ class CachedMetadataHandlerTest : public testing::Test {
 
   base::test::SingleThreadTaskEnvironment task_environment_;
 };
+
+TEST_F(CachedMetadataHandlerTest, ReleaseLargeConsumedCodeCacheLocally) {
+  base::test::ScopedFeatureList feature(kOptimiumReleaseConsumedCodeCache);
+  auto* handler = MakeGarbageCollected<ScriptCachedMetadataHandler>(
+      Utf8Encoding(), nullptr);
+  constexpr uint32_t kType = 1234;
+  constexpr wtf_size_t kThreshold = 2 * 1024 * 1024;
+  auto load = [&](ScriptCachedMetadataHandler* target, wtf_size_t size) {
+    auto bytes = CachedMetadata::GetSerializedDataHeader(
+        kType, size - sizeof(CachedMetadataHeader));
+    bytes.resize(size);
+    target->SetSerializedCachedMetadata(mojo_base::BigBuffer(bytes));
+  };
+  load(handler, kThreshold);
+  auto other_reader = handler->GetCachedMetadata(
+      kType, CachedMetadataHandler::kCrashIfUnchecked);
+  ASSERT_TRUE(other_reader);
+  handler->DidUseCodeCache(/*was_rejected=*/true);
+  EXPECT_EQ(handler->GetCodeCacheSize(), kThreshold);
+  handler->DidUseCodeCache(/*was_rejected=*/false);
+  EXPECT_EQ(handler->GetCodeCacheSize(), 0u);
+  EXPECT_EQ(other_reader->SerializedData().size(), kThreshold);
+
+  // A subsequent execution may try to store a new heat-check timestamp.
+  constexpr uint8_t kTimestamp[] = {1};
+  handler->SetCachedMetadata(nullptr, kType, kTimestamp);
+  EXPECT_EQ(handler->GetCodeCacheSize(), 0u);
+
+  auto* small = MakeGarbageCollected<ScriptCachedMetadataHandler>(
+      Utf8Encoding(), nullptr);
+  load(small, kThreshold - 1);
+  small->DidUseCodeCache(/*was_rejected=*/false);
+  EXPECT_EQ(small->GetCodeCacheSize(), kThreshold - 1);
+}
 
 TEST_F(CachedMetadataHandlerTest, SendsMetadataToPlatform) {
   MockGeneratedCodeCache mock_disk_cache;

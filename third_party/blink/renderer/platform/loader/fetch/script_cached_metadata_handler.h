@@ -10,6 +10,7 @@
 #include <memory>
 #include <utility>
 
+#include "base/feature_list.h"
 #include "base/memory/scoped_refptr.h"
 #include "third_party/blink/renderer/platform/bindings/parkable_string.h"
 #include "third_party/blink/renderer/platform/loader/fetch/cached_metadata.h"
@@ -22,6 +23,8 @@
 namespace blink {
 
 class CachedMetadata;
+
+PLATFORM_EXPORT BASE_DECLARE_FEATURE(kOptimiumReleaseConsumedCodeCache);
 
 // ScriptCachedMetadataHandler should be created when a response is received,
 // and can be used independently from its Resource.
@@ -60,6 +63,7 @@ class PLATFORM_EXPORT ScriptCachedMetadataHandler
   // TODO(hiroshige): Make these semantics cleaner.
   String Encoding() const override;
   ServingSource GetServingSource() const override;
+  void DidUseCodeCache(bool was_rejected) override;
   void OnMemoryDump(WebProcessMemoryDump* pmd,
                     const String& dump_prefix) const override;
   size_t GetCodeCacheSize() const override;
