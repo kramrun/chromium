@@ -8,6 +8,7 @@ import {ColorChangeUpdater} from 'chrome://resources/cr_components/color_change_
 // Optimium's native side panel uses a dedicated trusted-WebUI message handler.
 // eslint-disable-next-line no-restricted-imports
 import {sendWithPromise} from 'chrome://resources/js/cr.js';
+import {getFaviconUrl} from 'chrome://resources/js/icon.js';
 import {loadTimeData} from 'chrome://resources/js/load_time_data.js';
 import {css, html, LitElement, nothing} from 'chrome://resources/lit/v3_0/lit.rollup.js';
 
@@ -149,8 +150,9 @@ function normalizeConfig(value: unknown): HomeConfig {
       const entry = item as Record<string, unknown>;
       const url = safeUrl(textValue(entry['url'], '', 2048));
       const name = textValue(entry['name'], '', 40).trim();
-      const icon = textValue(entry['icon'], 'link', 16);
-      return url && name ? [{name, url, icon: ICONS[icon] ? icon : 'link'}] : [];
+      const icon = textValue(entry['icon'], 'auto', 16);
+      return url && name ? [{name, url, icon:
+        icon === 'auto' || Object.hasOwn(ICONS, icon) ? icon : 'auto'}] : [];
     });
   }
   return out;
@@ -185,6 +187,10 @@ class OptimiumHome extends LitElement {
   private soundcloudTimer = 0;
   private soundcloudPolling = false;
   private timer = 0;
+  // Only the current shortcuts are tracked. Replacing a shortcut or a late
+  // response for an old request must not change a different tile.
+  private readonly missingFavicons = new Set<string>();
+  private readonly refreshedFavicons = new Map<string, number>();
   private weatherRequest: AbortController|null = null;
   private readonly onStorage = (event: StorageEvent) => {
     if (event.key === CONFIG_KEY) {
@@ -194,7 +200,10 @@ class OptimiumHome extends LitElement {
     if (event.key === HISTORY_KEY) { this.readHistory(); }
   };
   private readonly onVisibility = () => {
-    if (!document.hidden) { this.time = new Date(); }
+    if (!document.hidden) {
+      this.missingFavicons.clear();
+      this.time = new Date();
+    }
   };
   static override styles = css`
     :host {
@@ -263,7 +272,12 @@ class OptimiumHome extends LitElement {
     .shortcuts { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin: 28px auto 36px; max-width: 720px; }
     .shortcut { width: 104px; padding: 12px 8px; border-radius: 16px; text-align: center; color: var(--ink); text-decoration: none; font-size: 13px; background: transparent; border: 0; }
     .shortcut:hover { background: var(--surface); }
-    .shortcut svg { display: block; margin: 0 auto 10px; width: 24px; height: 24px; }
+    .shortcut svg, .shortcut img { display: block; margin: 0 auto 10px; width: 24px; height: 24px; }
+    .shortcut-favicon { object-fit: contain; filter: url(#optimium-shortcut-palette); }
+    .shortcut-filters { position: absolute; width: 0; height: 0; pointer-events: none; }
+    .shortcut-ink { flood-color: color-mix(in srgb, var(--ink) 35%, var(--accent)); }
+    .shortcut-shade { flood-color: color-mix(in srgb, var(--accent) 56%, var(--page)); }
+    .saved-shortcut .shortcut-favicon { width: 20px; height: 20px; flex: none; }
     .shortcut span { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .widgets { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 20px; margin: 40px auto 0; max-width: 820px; }
     .widget { background: color-mix(in srgb, var(--surface) var(--opacity, 76%), transparent); border: 1px solid var(--line); border-radius: var(--radius, 24px); padding: 22px; min-width: 0; }
@@ -356,6 +370,15 @@ class OptimiumHome extends LitElement {
   }
   private save(patch: Partial<HomeConfig>) {
     this.config = normalizeConfig({...this.config, ...patch});
+    if (patch.shortcuts) {
+      const active = new Set(this.config.shortcuts.map(s => s.url));
+      for (const url of this.missingFavicons) {
+        if (!active.has(url)) { this.missingFavicons.delete(url); }
+      }
+      for (const url of this.refreshedFavicons.keys()) {
+        if (!active.has(url)) { this.refreshedFavicons.delete(url); }
+      }
+    }
     try { localStorage.setItem(CONFIG_KEY, JSON.stringify(this.config)); }
     catch { this.status = 'Не удалось сохранить настройки: хранилище недоступно.'; }
   }
@@ -598,6 +621,42 @@ class OptimiumHome extends LitElement {
       <button class="quiet" @click=${() => this.openSoundcloudPanel()}>Открыть медиатеку</button>
     </article>`;
   }
+  private shortcutIcon(shortcut: Shortcut) {
+    if (shortcut.icon !== 'auto') {
+      return icon(shortcut.icon);
+    }
+    const url = shortcut.url;
+    if (this.missingFavicons.has(url)) {
+      return icon('globe');
+    }
+    const source = getFaviconUrl(url, {
+      size: 24, scaleFactor: `${Math.min(3, Math.ceil(window.devicePixelRatio || 1))}x`,
+      forceEmptyDefaultFavicon: true,
+    });
+    const revision = this.refreshedFavicons.get(url) || 0;
+    return html`<img class="shortcut-favicon" alt="" src=${source + '&v=' + revision}
+        @error=${() => {
+          if ((this.refreshedFavicons.get(url) || 0) === revision && !this.missingFavicons.has(url)) {
+            this.missingFavicons.add(url);
+            this.requestUpdate();
+          }
+        }}>`;
+  }
+
+  private async cacheShortcutIcon(url: string) {
+    // Only an explicit add can fetch a missing favicon from the site's origin.
+    try {
+      if (await sendWithPromise<boolean>('cacheOptimiumShortcutIcon', url) &&
+          this.config.shortcuts.some(s => s.url === url && s.icon === 'auto')) {
+        this.missingFavicons.delete(url);
+        this.refreshedFavicons.set(url, (this.refreshedFavicons.get(url) || 0) + 1);
+        this.requestUpdate();
+      }
+    } catch {
+      // The bundled mark or globe stays available when the site is offline.
+    }
+  }
+
   private addShortcut(event: SubmitEvent) {
     event.preventDefault();
     const form = event.target as HTMLFormElement;
@@ -606,7 +665,9 @@ class OptimiumHome extends LitElement {
     const url = safeUrl(raw.includes('://') ? raw : `https://${raw}`);
     const name = String(data.get('name') || '').trim();
     if (!url || !name) { this.status = 'Укажи название и адрес сайта с http:// или https://.'; return; }
-    this.save({shortcuts: [...this.config.shortcuts, {name, url, icon: String(data.get('icon') || 'link')}]});
+    const choice = String(data.get('icon') || 'auto');
+    this.save({shortcuts: [...this.config.shortcuts, {name, url, icon: choice}]});
+    if (choice === 'auto') { void this.cacheShortcutIcon(url); }
     form.reset();
   }
   private exportConfig() {
@@ -678,8 +739,8 @@ class OptimiumHome extends LitElement {
         <p class="notice">Только запросы с этой страницы. Популярных запросов и рекомендаций нет.</p>
         <div class="row"><button @click=${() => this.clearHistory()}>Очистить историю</button><a class="button" href="chrome://settings/search">Поисковая система</a></div>
         <h2>Ярлыки</h2>
-        ${this.config.shortcuts.map((s, index) => html`<div class="saved-shortcut">${icon(s.icon)}<span>${s.name}</span><button class="quiet" aria-label=${`Удалить ${s.name}`} @click=${() => this.save({shortcuts: this.config.shortcuts.filter((_, i) => i !== index)})}>${icon('close')}</button></div>`)}
-        ${this.config.shortcuts.length < 12 ? html`<form @submit=${(e: SubmitEvent) => this.addShortcut(e)}><label class="field"><span>Название</span><input name="name" required maxlength="40" placeholder="Например, YouTube"></label><label class="field"><span>Адрес</span><input name="url" required maxlength="2048" placeholder="https://youtube.com"></label><label class="field"><span>Иконка</span><select name="icon"><option value="globe">Сайт</option><option value="video">Видео</option><option value="music">Музыка</option><option value="code">Код</option><option value="book">Чтение</option><option value="link">Ссылка</option></select></label><button type="submit" class="icon-button">${icon('plus')}Добавить ярлык</button></form>` : nothing}
+        ${this.config.shortcuts.map((s, index) => html`<div class="saved-shortcut">${this.shortcutIcon(s)}<span>${s.name}</span><button class="quiet" aria-label=${`Удалить ${s.name}`} @click=${() => this.save({shortcuts: this.config.shortcuts.filter((_, i) => i !== index)})}>${icon('close')}</button></div>`)}
+        ${this.config.shortcuts.length < 12 ? html`<form @submit=${(e: SubmitEvent) => this.addShortcut(e)}><label class="field"><span>Название</span><input name="name" required maxlength="40" placeholder="Например, YouTube"></label><label class="field"><span>Адрес</span><input name="url" required maxlength="2048" placeholder="https://youtube.com"></label><label class="field"><span>Иконка</span><select name="icon"><option value="auto">Иконка сайта в цветах темы</option><option value="globe">Глобус</option><option value="video">Видео</option><option value="music">Музыка</option><option value="code">Код</option><option value="book">Чтение</option><option value="link">Ссылка</option></select></label><button type="submit" class="icon-button">${icon('plus')}Добавить ярлык</button></form>` : nothing}
         <h2 id="weather-settings">Погода</h2>
         <label class="field"><span>Город</span><input id="weather-city" maxlength="100" .value=${this.config.city} @change=${(e: Event) => this.setValue('city', e)} placeholder="Например, Екатеринбург"></label>
         ${this.check('Разрешить загрузку погоды Open-Meteo', 'weatherEnabled')}
@@ -710,6 +771,18 @@ class OptimiumHome extends LitElement {
     return html`<div class=${this.config.compact ? 'page compact' : 'page'} style=${style} @click=${(e: MouseEvent) => {
       if (!(e.target as Element).closest('.search-area')) { this.historyOpen = false; }
     }}>
+      <svg class="shortcut-filters" aria-hidden="true" focusable="false">
+        <defs><filter id="optimium-shortcut-palette" color-interpolation-filters="sRGB"
+            x="0" y="0" width="100%" height="100%">
+          <feColorMatrix in="SourceGraphic" type="matrix"
+              values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  .213 .715 .072 0 0" result="lightness"/>
+          <feFlood class="shortcut-shade"/>
+          <feComposite in2="lightness" operator="in" result="shading"/>
+          <feFlood class="shortcut-ink"/>
+          <feMerge><feMergeNode/><feMergeNode in="shading"/></feMerge>
+          <feComposite in2="SourceAlpha" operator="in"/>
+        </filter></defs>
+      </svg>
       <header><span class="wordmark">Optimium</span><nav><button class="quiet icon-button" ?disabled=${this.soundcloudOpening} @click=${() => this.openSoundcloudPanel()} aria-label="Открыть медиатеку SoundCloud">${icon('music')}<span class="label">SoundCloud</span></button><a class="button quiet icon-button" href="chrome://settings/appearance" aria-label="Темы Optimium">${icon('palette')}<span class="label">Темы</span></a><button class="quiet icon-button" @click=${() => this.openDrawer()} aria-label="Настроить новую вкладку">${icon('settings')}<span class="label">Настроить</span></button></nav></header>
       <main>
         ${this.config.showHeading && this.config.heading ? html`<p class="heading">${this.config.heading}</p>` : nothing}
@@ -720,7 +793,7 @@ class OptimiumHome extends LitElement {
           </form>
           ${this.historyOpen && this.config.showHistory && matches.length ? html`<div class="history"><p>История поиска на этой странице</p>${matches.map(value => html`<button @click=${() => this.navigate(value)}>${icon('history')}<span>${value}</span></button>`)}</div>` : nothing}
         </div>
-        <section class="shortcuts" aria-label="Ярлыки">${this.config.shortcuts.map(s => html`<a class="shortcut" href=${s.url}>${icon(s.icon)}<span>${s.name}</span></a>`)}<button class="shortcut" @click=${() => this.openDrawer()}>${icon('plus')}<span>Добавить</span></button></section>
+        <section class="shortcuts" aria-label="Ярлыки">${this.config.shortcuts.map(s => html`<a class="shortcut" href=${s.url}>${this.shortcutIcon(s)}<span>${s.name}</span></a>`)}<button class="shortcut" @click=${() => this.openDrawer()}>${icon('plus')}<span>Добавить</span></button></section>
         ${showWeatherWidget || (this.config.soundcloudMiniEnabled && this.soundcloudState?.available) || (this.config.soundcloudEnabled && this.config.soundcloudUrl) ? html`<section class="widgets">
           ${showWeatherWidget ? html`<article class="widget"><h2>${icon('cloud')}Погода</h2>${this.weatherContent()}</article>` : nothing}
           ${this.config.soundcloudMiniEnabled && this.soundcloudState?.available ? this.soundcloudMiniPlayer() : nothing}

@@ -155,11 +155,20 @@
 #include "chrome/browser/new_tab_page/modules/v2/tab_groups/tab_groups_page_handler.h"
 #include "chrome/browser/ui/browser_window.h"
 #include "chrome/browser/ui/browser_window/public/browser_window_interface.h"
+#include "chrome/browser/favicon/favicon_service_factory.h"
+#include "chrome/browser/image_fetcher/image_fetcher_service_factory.h"
+#include "chrome/browser/profiles/profile_key.h"
 #include "chrome/browser/ui/tabs/public/tab_features.h"
 #include "chrome/browser/ui/views/side_panel/customize_chrome/customize_chrome_utils.h"
 #include "chrome/browser/ui/views/side_panel/optimium/soundcloud_side_panel_coordinator.h"
 #include "chrome/browser/ui/webui/webui_embedding_context.h"
+#include "components/favicon/core/favicon_service.h"
+#include "components/image_fetcher/core/image_fetcher.h"
+#include "components/image_fetcher/core/image_fetcher_service.h"
+#include "components/image_fetcher/core/request_metadata.h"
+#include "net/traffic_annotation/network_traffic_annotation.h"
 #include "content/public/browser/media_session.h"
+#include "content/public/browser/web_contents.h"
 #include "content/public/browser/web_contents_observer.h"
 #include "content/public/browser/web_ui_message_handler.h"
 #include "chrome/browser/ui/webui/new_tab_page/ntp_promo/ntp_promo_handler.h"
@@ -170,6 +179,7 @@
 #include "services/media_session/public/mojom/media_session.mojom.h"
 #include "third_party/skia/include/core/SkBitmap.h"
 #include "ui/gfx/codec/png_codec.h"
+#include "ui/gfx/image/image.h"
 #endif  // !BUILDFLAG(IS_ANDROID)
 
 #if !defined(OFFICIAL_BUILD)
@@ -202,6 +212,110 @@ NewTabPageUIConfig::CreateWebUIController(content::WebUI* web_ui,
 namespace {
 
 #if !BUILDFLAG(IS_ANDROID)
+// Retrieve an on-demand favicon only when the user adds a shortcut. Reading
+// a tile on later new tabs uses the regular per-profile favicon database.
+class OptimiumShortcutIconHandler : public content::WebUIMessageHandler {
+ public:
+  void RegisterMessages() override {
+    web_ui()->RegisterMessageCallback(
+        "cacheOptimiumShortcutIcon",
+        base::BindRepeating(&OptimiumShortcutIconHandler::Cache,
+                            base::Unretained(this)));
+  }
+
+ private:
+  void OnJavascriptDisallowed() override {
+    weak_factory_.InvalidateWeakPtrs();
+    tracker_.TryCancelAll();
+  }
+
+  favicon::FaviconService* GetFaviconService() {
+    return FaviconServiceFactory::GetForProfile(
+        Profile::FromWebUI(web_ui()), ServiceAccessType::EXPLICIT_ACCESS);
+  }
+
+  void Cache(const base::ListValue& args) {
+    if (args.size() != 2 || !args[0].is_string() || !args[1].is_string()) {
+      return;
+    }
+    AllowJavascript();
+    const GURL page(args[1].GetString());
+    auto* favicons = GetFaviconService();
+    if (!page.is_valid() || !page.SchemeIsHTTPOrHTTPS() || page.has_username() ||
+        page.has_password() || !favicons ||
+        !web_ui()->GetWebContents()->HasRecentInteraction()) {
+      Reply(args[0].GetString(), false);
+      return;
+    }
+    favicons->GetRawFaviconForPageURL(
+        page, {favicon_base::IconType::kFavicon}, 48,
+        /*fallback_to_host=*/true,
+        base::BindOnce(&OptimiumShortcutIconHandler::OnLookup,
+                       weak_factory_.GetWeakPtr(), args[0].GetString(), page),
+        &tracker_);
+  }
+
+  void OnLookup(const std::string& id, const GURL& page,
+                const favicon_base::FaviconRawBitmapResult& result) {
+    if (result.is_valid()) {
+      Reply(id, true);
+      return;
+    }
+    auto* images = ImageFetcherServiceFactory::GetForKey(
+        Profile::FromWebUI(web_ui())->GetProfileKey());
+    if (!images) {
+      Reply(id, false);
+      return;
+    }
+    constexpr auto traffic = net::DefineNetworkTrafficAnnotation(
+        "optimium_shortcut_favicon", R"(
+          semantics {
+            sender: "Optimium new tab shortcuts"
+            description: "Retrieves a site icon for a shortcut added by the user."
+            trigger: "The user adds a shortcut with automatic icon selection and the profile has no cached favicon."
+            data: "The favicon.ico path at the destination origin."
+            destination: WEBSITE
+          }
+          policy {
+            cookies_allowed: NO
+            setting: "Selecting a manual icon when adding a shortcut skips this request."
+            policy_exception_justification: "Only initiated by the user's explicit shortcut action."
+          })");
+    image_fetcher::ImageFetcherParams params(traffic, "OptimiumShortcutIcon");
+    params.set_max_download_size(256 * 1024);
+    params.set_frame_size(gfx::Size(48, 48));
+    const GURL icon_url = page.Resolve("/favicon.ico");
+    images->GetImageFetcher(image_fetcher::ImageFetcherConfig::kNetworkOnly)
+        ->FetchImage(
+            icon_url,
+            base::BindOnce(&OptimiumShortcutIconHandler::OnDownload,
+                           weak_factory_.GetWeakPtr(), id, page, icon_url),
+            std::move(params));
+  }
+
+  void OnDownload(const std::string& id, const GURL& page, const GURL& icon_url,
+                  const gfx::Image& image,
+                  const image_fetcher::RequestMetadata& metadata) {
+    auto* favicons = GetFaviconService();
+    if (metadata.http_response_code < 200 || metadata.http_response_code >= 300 ||
+        image.IsEmpty() || !favicons) {
+      Reply(id, false);
+      return;
+    }
+    favicons->SetOnDemandFavicons(
+        page, icon_url, favicon_base::IconType::kFavicon, image,
+        base::BindOnce(&OptimiumShortcutIconHandler::Reply,
+                       weak_factory_.GetWeakPtr(), id));
+  }
+
+  void Reply(const std::string& id, bool success) {
+    ResolveJavascriptCallback(base::Value(id), base::Value(success));
+  }
+
+  base::CancelableTaskTracker tracker_;
+  base::WeakPtrFactory<OptimiumShortcutIconHandler> weak_factory_{this};
+};
+
 // Only the trusted new-tab WebUI receives this message. The remote music page
 // is an ordinary WebContents and has no access to this bridge.
 class OptimiumSoundCloudMessageHandler
@@ -1275,6 +1389,7 @@ NewTabPageUI::NewTabPageUI(content::WebUI* web_ui)
                                    profile_)) {
 
 #if !BUILDFLAG(IS_ANDROID)
+  web_ui->AddMessageHandler(std::make_unique<OptimiumShortcutIconHandler>());
   web_ui->AddMessageHandler(
       std::make_unique<OptimiumSoundCloudMessageHandler>());
 #endif
