@@ -15,6 +15,7 @@ import {css, html, LitElement, nothing} from 'chrome://resources/lit/v3_0/lit.ro
 // Declarative dashboard data only. Imported configuration never executes code,
 // injects CSS, or supplies HTML. Network widgets are disabled by default.
 const CONFIG_KEY = 'optimium.home.v1';
+const SHORTCUT_LIMIT = 12;
 const HISTORY_KEY = 'optimium.home.history.v1';
 const WEATHER_KEY = 'optimium.home.weather.v1';
 const ICONS: {[key: string]: string} = {
@@ -145,7 +146,7 @@ function normalizeConfig(value: unknown): HomeConfig {
     out.searchWidth = 584;
   }
   if (Array.isArray(v['shortcuts'])) {
-    out.shortcuts = v['shortcuts'].slice(0, 12).flatMap((item: unknown) => {
+    out.shortcuts = v['shortcuts'].slice(0, SHORTCUT_LIMIT).flatMap((item: unknown) => {
       if (!item || typeof item !== 'object') { return []; }
       const entry = item as Record<string, unknown>;
       const url = safeUrl(textValue(entry['url'], '', 2048));
@@ -168,7 +169,7 @@ function icon(name: string) {
 class OptimiumHome extends LitElement {
   static override properties = {
     config: {type: Object, state: true}, time: {type: Object, state: true}, query: {type: String, state: true},
-    history: {type: Array, state: true}, historyOpen: {type: Boolean, state: true}, drawerOpen: {type: Boolean, state: true},
+    history: {type: Array, state: true}, historyOpen: {type: Boolean, state: true}, activeDialog: {type: String, state: true},
     status: {type: String, state: true}, weather: {type: Object, state: true}, weatherLoading: {type: Boolean, state: true},
     soundcloudOpening: {type: Boolean, state: true},
     soundcloudState: {type: Object, state: true},
@@ -178,7 +179,7 @@ class OptimiumHome extends LitElement {
   private accessor query = '';
   private accessor history: string[] = [];
   private accessor historyOpen = false;
-  private accessor drawerOpen = false;
+  private accessor activeDialog: 'settings'|'shortcut'|null = null;
   private accessor status = '';
   private accessor weather: WeatherData|null = null;
   private accessor weatherLoading = false;
@@ -304,6 +305,14 @@ class OptimiumHome extends LitElement {
     .compact .clock { font-size: 64px; }
     .compact .clock-weather .clock { font-size: clamp(64px, 12vw, 104px); }
     dialog { margin: 0 0 0 auto; position: fixed; height: 100dvh; max-height: 100dvh; width: min(480px, 100%); max-width: 100%; border: 0; border-left: 1px solid var(--line); padding: 0; color: var(--ink); background: var(--page); }
+    .shortcut-dialog {
+      margin: auto; width: min(400px, calc(100% - 32px)); height: fit-content;
+      max-height: calc(100dvh - 32px); padding: 22px; overflow: auto;
+      border: 1px solid var(--line); border-radius: 16px;
+    }
+    .shortcut-dialog h2 { margin: 0; font-size: 20px; line-height: 1.3; }
+    .shortcut-dialog .shortcut-actions { justify-content: flex-end; margin-top: 22px; }
+    .shortcut-dialog button[type=submit] { color: var(--page); background: var(--accent); }
     dialog::backdrop { background: #0005; }
     .drawer-header { position: sticky; top: 0; z-index: 1; padding: 20px 24px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--line); background: var(--page); }
     .drawer-header h1 { font-size: 19px; margin: 0; }
@@ -390,19 +399,26 @@ class OptimiumHome extends LitElement {
     this.save({[key]: (event.target as HTMLInputElement).checked});
     if (key === 'weatherEnabled') { void this.updateWeather(); }
   }
-  private async openDrawer() {
+  private async openDialog(kind: 'settings'|'shortcut') {
     this.historyOpen = false;
-    this.drawerOpen = true;
+    this.activeDialog = kind;
     await this.updateComplete;
     const dialog = this.renderRoot.querySelector('dialog');
     if (dialog && !dialog.open) { dialog.showModal(); }
   }
-  private closeDrawer() {
+  private onDialogClosed(event: Event) {
+    // A queued close event can arrive after another dialog has opened.
+    const dialog = event.currentTarget as HTMLDialogElement;
+    if (!dialog.open && dialog === this.renderRoot.querySelector('dialog')) {
+      this.activeDialog = null;
+    }
+  }
+  private closeDialog() {
     this.renderRoot.querySelector('dialog')?.close();
-    this.drawerOpen = false;
+    this.activeDialog = null;
   }
   private async openWeatherSettings() {
-    await this.openDrawer();
+    await this.openDialog('settings');
     this.renderRoot.querySelector('#weather-settings')?.scrollIntoView({block: 'start'});
     this.renderRoot.querySelector<HTMLInputElement>('#weather-city')?.focus({preventScroll: true});
   }
@@ -553,7 +569,7 @@ class OptimiumHome extends LitElement {
   private weatherContent() {
     if (this.weatherLoading) { return html`<p class="muted">Загрузка погоды…</p>`; }
     if (!this.weather) {
-      return html`<p class="muted">${this.config.city ? 'Погода пока недоступна' : 'Выбери город в настройках страницы'}</p><button @click=${() => this.openDrawer()}>Настроить погоду</button>`;
+      return html`<p class="muted">${this.config.city ? 'Погода пока недоступна' : 'Выбери город в настройках страницы'}</p><button @click=${() => this.openDialog('settings')}>Настроить погоду</button>`;
     }
     return html`<div class="weather-value">${Math.round(this.weather.temperature)}°</div><p>${this.weather.label} · ${this.weatherDescription(this.weather.code)}</p><small>Обновлено ${new Date(this.weather.time).toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'})} · <a href="https://open-meteo.com/" target="_blank" rel="noopener noreferrer">Open-Meteo</a></small>`;
   }
@@ -577,7 +593,7 @@ class OptimiumHome extends LitElement {
     this.soundcloudOpening = true;
     try {
       const opened = await sendWithPromise<boolean>('openOptimiumSoundCloud');
-      if (opened && this.drawerOpen) { this.closeDrawer(); }
+      if (opened && this.activeDialog === 'settings') { this.closeDialog(); }
       if (!opened) { this.status = 'Не удалось открыть SoundCloud. Попробуй ещё раз.'; }
     } catch (error) {
       this.status = typeof error === 'string' ? error.slice(0, 180) :
@@ -664,11 +680,31 @@ class OptimiumHome extends LitElement {
     const raw = String(data.get('url') || '').trim();
     const url = safeUrl(raw.includes('://') ? raw : `https://${raw}`);
     const name = String(data.get('name') || '').trim();
-    if (!url || !name) { this.status = 'Укажи название и адрес сайта с http:// или https://.'; return; }
+    if (!name || !url) {
+      const field = form.elements.namedItem(!name ? 'name' : 'url') as HTMLInputElement;
+      field.setCustomValidity(!name ? 'Введите название ярлыка.' : 'Введите адрес сайта с http:// или https://.');
+      field.reportValidity();
+      return;
+    }
+    if (this.config.shortcuts.length >= SHORTCUT_LIMIT) {
+      this.closeDialog();
+      this.status = `Можно сохранить до ${SHORTCUT_LIMIT} ярлыков.`;
+      return;
+    }
     const choice = String(data.get('icon') || 'auto');
     this.save({shortcuts: [...this.config.shortcuts, {name, url, icon: choice}]});
     if (choice === 'auto') { void this.cacheShortcutIcon(url); }
     form.reset();
+    if (this.activeDialog === 'shortcut') {
+      this.closeDialog();
+      // The add tile disappears when the last available slot is filled.
+      if (this.config.shortcuts.length === SHORTCUT_LIMIT) {
+        void this.updateComplete.then(() => {
+          const links = this.renderRoot.querySelectorAll<HTMLAnchorElement>('a.shortcut');
+          links[links.length - 1]?.focus();
+        });
+      }
+    }
   }
   private exportConfig() {
     const url = URL.createObjectURL(new Blob([JSON.stringify(this.config, null, 2)], {type: 'application/json'}));
@@ -717,10 +753,42 @@ class OptimiumHome extends LitElement {
         </button>`)}</div>
     </fieldset>`;
   }
-  private drawer() {
-    if (!this.drawerOpen) { return nothing; }
-    return html`<dialog @close=${() => { this.drawerOpen = false; }} @click=${(e: MouseEvent) => { if (e.target === e.currentTarget) { this.closeDrawer(); } }}>
-      <div class="drawer-header"><h1>Настроить новую вкладку</h1><button class="quiet" aria-label="Закрыть" @click=${() => this.closeDrawer()}>${icon('close')}</button></div>
+  private shortcutForm() {
+    const standalone = this.activeDialog === 'shortcut';
+    return html`<form @submit=${this.addShortcut} @input=${(event: Event) => {
+      if (event.target instanceof HTMLInputElement) { event.target.setCustomValidity(''); }
+    }}>
+      <label class="field"><span>Название</span>
+        <input name="name" required maxlength="40" ?autofocus=${standalone} placeholder="Например, YouTube">
+      </label>
+      <label class="field"><span>Адрес сайта</span>
+        <input name="url" inputmode="url" required maxlength="2048" placeholder="https://youtube.com">
+      </label>
+      <label class="field"><span>Иконка</span>
+        <select name="icon">
+          <option value="auto">Иконка сайта в цветах темы</option>
+          <option value="globe">Глобус</option><option value="video">Видео</option>
+          <option value="music">Музыка</option><option value="code">Код</option>
+          <option value="book">Чтение</option><option value="link">Ссылка</option>
+        </select>
+      </label>
+      <div class="row shortcut-actions">
+        ${standalone ? html`<button type="button" @click=${this.closeDialog}>Отмена</button>` : nothing}
+        <button type="submit" class="icon-button">${standalone ? 'Добавить' : html`${icon('plus')}Добавить ярлык`}</button>
+      </div>
+    </form>`;
+  }
+  private renderDialog() {
+    if (!this.activeDialog) { return nothing; }
+    if (this.activeDialog === 'shortcut') {
+      return html`<dialog class="shortcut-dialog" aria-labelledby="shortcut-title" closedby="any"
+          @close=${this.onDialogClosed}>
+        <h2 id="shortcut-title">Добавить ярлык</h2>
+        ${this.shortcutForm()}
+      </dialog>`;
+    }
+    return html`<dialog @close=${this.onDialogClosed} @click=${(e: MouseEvent) => { if (e.target === e.currentTarget) { this.closeDialog(); } }}>
+      <div class="drawer-header"><h1>Настроить новую вкладку</h1><button class="quiet" aria-label="Закрыть" @click=${() => this.closeDialog()}>${icon('close')}</button></div>
       <div class="drawer-body">
         <h2>Оформление</h2><a class="button icon-button" href="chrome://settings/appearance">${icon('palette')}Темы Optimium</a>
         <p class="notice">Страница использует цвета темы браузера. Изменения ниже сохраняются сразу.</p>
@@ -740,7 +808,7 @@ class OptimiumHome extends LitElement {
         <div class="row"><button @click=${() => this.clearHistory()}>Очистить историю</button><a class="button" href="chrome://settings/search">Поисковая система</a></div>
         <h2>Ярлыки</h2>
         ${this.config.shortcuts.map((s, index) => html`<div class="saved-shortcut">${this.shortcutIcon(s)}<span>${s.name}</span><button class="quiet" aria-label=${`Удалить ${s.name}`} @click=${() => this.save({shortcuts: this.config.shortcuts.filter((_, i) => i !== index)})}>${icon('close')}</button></div>`)}
-        ${this.config.shortcuts.length < 12 ? html`<form @submit=${(e: SubmitEvent) => this.addShortcut(e)}><label class="field"><span>Название</span><input name="name" required maxlength="40" placeholder="Например, YouTube"></label><label class="field"><span>Адрес</span><input name="url" required maxlength="2048" placeholder="https://youtube.com"></label><label class="field"><span>Иконка</span><select name="icon"><option value="auto">Иконка сайта в цветах темы</option><option value="globe">Глобус</option><option value="video">Видео</option><option value="music">Музыка</option><option value="code">Код</option><option value="book">Чтение</option><option value="link">Ссылка</option></select></label><button type="submit" class="icon-button">${icon('plus')}Добавить ярлык</button></form>` : nothing}
+        ${this.config.shortcuts.length < SHORTCUT_LIMIT ? this.shortcutForm() : nothing}
         <h2 id="weather-settings">Погода</h2>
         <label class="field"><span>Город</span><input id="weather-city" maxlength="100" .value=${this.config.city} @change=${(e: Event) => this.setValue('city', e)} placeholder="Например, Екатеринбург"></label>
         ${this.check('Разрешить загрузку погоды Open-Meteo', 'weatherEnabled')}
@@ -783,7 +851,7 @@ class OptimiumHome extends LitElement {
           <feComposite in2="SourceAlpha" operator="in"/>
         </filter></defs>
       </svg>
-      <header><span class="wordmark">Optimium</span><nav><button class="quiet icon-button" ?disabled=${this.soundcloudOpening} @click=${() => this.openSoundcloudPanel()} aria-label="Открыть медиатеку SoundCloud">${icon('music')}<span class="label">SoundCloud</span></button><a class="button quiet icon-button" href="chrome://settings/appearance" aria-label="Темы Optimium">${icon('palette')}<span class="label">Темы</span></a><button class="quiet icon-button" @click=${() => this.openDrawer()} aria-label="Настроить новую вкладку">${icon('settings')}<span class="label">Настроить</span></button></nav></header>
+      <header><span class="wordmark">Optimium</span><nav><button class="quiet icon-button" ?disabled=${this.soundcloudOpening} @click=${() => this.openSoundcloudPanel()} aria-label="Открыть медиатеку SoundCloud">${icon('music')}<span class="label">SoundCloud</span></button><a class="button quiet icon-button" href="chrome://settings/appearance" aria-label="Темы Optimium">${icon('palette')}<span class="label">Темы</span></a><button class="quiet icon-button" @click=${() => this.openDialog('settings')} aria-label="Настроить новую вкладку">${icon('settings')}<span class="label">Настроить</span></button></nav></header>
       <main>
         ${this.config.showHeading && this.config.heading ? html`<p class="heading">${this.config.heading}</p>` : nothing}
         ${this.config.hero !== 'none' ? html`<section class="hero" aria-label="Главный виджет">${this.hero()}</section>` : nothing}
@@ -793,7 +861,7 @@ class OptimiumHome extends LitElement {
           </form>
           ${this.historyOpen && this.config.showHistory && matches.length ? html`<div class="history"><p>История поиска на этой странице</p>${matches.map(value => html`<button @click=${() => this.navigate(value)}>${icon('history')}<span>${value}</span></button>`)}</div>` : nothing}
         </div>
-        <section class="shortcuts" aria-label="Ярлыки">${this.config.shortcuts.map(s => html`<a class="shortcut" href=${s.url}>${this.shortcutIcon(s)}<span>${s.name}</span></a>`)}<button class="shortcut" @click=${() => this.openDrawer()}>${icon('plus')}<span>Добавить</span></button></section>
+        <section class="shortcuts" aria-label="Ярлыки">${this.config.shortcuts.map(s => html`<a class="shortcut" href=${s.url}>${this.shortcutIcon(s)}<span>${s.name}</span></a>`)}${this.config.shortcuts.length < SHORTCUT_LIMIT ? html`<button class="shortcut" aria-haspopup="dialog" @click=${() => this.openDialog('shortcut')}>${icon('plus')}<span>Добавить</span></button>` : nothing}</section>
         ${showWeatherWidget || (this.config.soundcloudMiniEnabled && this.soundcloudState?.available) || (this.config.soundcloudEnabled && this.config.soundcloudUrl) ? html`<section class="widgets">
           ${showWeatherWidget ? html`<article class="widget"><h2>${icon('cloud')}Погода</h2>${this.weatherContent()}</article>` : nothing}
           ${this.config.soundcloudMiniEnabled && this.soundcloudState?.available ? this.soundcloudMiniPlayer() : nothing}
@@ -801,7 +869,7 @@ class OptimiumHome extends LitElement {
         </section>` : nothing}
       </main>
       <footer><a href="chrome://history">История</a><a href="chrome://bookmarks">Закладки</a><a href="chrome://downloads">Загрузки</a><a href="chrome://settings/performance">Экономия памяти</a></footer>
-      ${this.drawer()}
+      ${this.renderDialog()}
       ${this.status ? html`<div class="status" role="status">${this.status}<button class="quiet" aria-label="Закрыть уведомление" @click=${() => { this.status = ''; }}>${icon('close')}</button></div>` : nothing}
     </div>`;
   }
