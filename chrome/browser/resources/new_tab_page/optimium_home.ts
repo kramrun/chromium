@@ -56,6 +56,11 @@ const CLOCK_STYLES: Array<{id: ClockStyle; label: string}> = [
   {id: 'serif', label: 'С засечками'},
   {id: 'light', label: 'Тонкий'},
 ];
+type HomeDialog = 'settings'|'shortcut'|'remove-shortcut';
+const SHORTCUT_ICONS: Record<string, string> = {
+  auto: 'Иконка сайта в цветах темы', globe: 'Глобус', video: 'Видео',
+  music: 'Музыка', code: 'Код', book: 'Чтение', link: 'Ссылка',
+};
 interface Shortcut {name: string; url: string; icon: string;}
 interface HomeConfig {
   version: 1;
@@ -179,7 +184,8 @@ class OptimiumHome extends LitElement {
   private accessor query = '';
   private accessor history: string[] = [];
   private accessor historyOpen = false;
-  private accessor activeDialog: 'settings'|'shortcut'|null = null;
+  private accessor activeDialog: HomeDialog|null = null;
+  private shortcutIndex: number|null = null;
   private accessor status = '';
   private accessor weather: WeatherData|null = null;
   private accessor weatherLoading = false;
@@ -195,7 +201,15 @@ class OptimiumHome extends LitElement {
   private weatherRequest: AbortController|null = null;
   private readonly onStorage = (event: StorageEvent) => {
     if (event.key === CONFIG_KEY) {
-      this.config = readConfig();
+      const next = readConfig();
+      if (JSON.stringify(next.shortcuts) !== JSON.stringify(this.config.shortcuts)) {
+        this.renderRoot.querySelector<HTMLElement>('.shortcut-menu:popover-open')?.hidePopover();
+        if (this.activeDialog && this.shortcutIndex !== null) {
+          this.closeDialog();
+          this.status = 'Ярлыки изменились в другой вкладке.';
+        }
+      }
+      this.config = next;
       void this.updateWeather();
     }
     if (event.key === HISTORY_KEY) { this.readHistory(); }
@@ -272,6 +286,31 @@ class OptimiumHome extends LitElement {
     .history button:hover { background: color-mix(in srgb, var(--surface) 85%, var(--ink)); }
     .shortcuts { display: flex; flex-wrap: wrap; justify-content: center; gap: 12px; margin: 28px auto 36px; max-width: 720px; }
     .shortcut { width: 104px; padding: 12px 8px; border-radius: 16px; text-align: center; color: var(--ink); text-decoration: none; font-size: 13px; background: transparent; border: 0; }
+    .shortcut-tile { anchor-scope: --shortcut-more; display: grid; position: relative; }
+    .shortcut-more {
+      anchor-name: --shortcut-more; position: absolute; inset: 2px 2px auto auto; display: grid; place-items: center;
+      width: 26px; height: 26px; padding: 0; border: 0; border-radius: 50%;
+      background: transparent; color: var(--ink);
+    }
+    .shortcut-more svg { width: 16px; height: 16px; }
+    .shortcut-more:hover, .shortcut-more:focus-visible { background: var(--surface); }
+    @media (hover: hover) and (pointer: fine) {
+      .shortcut-more { opacity: 0; pointer-events: none; }
+      .shortcut-tile:hover .shortcut-more, .shortcut-tile:focus-within .shortcut-more,
+      .shortcut-tile:has(:popover-open) .shortcut-more { opacity: 1; pointer-events: auto; }
+    }
+    .shortcut-menu {
+      position-anchor: --shortcut-more; position: fixed; inset: auto; top: anchor(bottom); margin: 3px 0;
+      left: clamp(6px, calc(anchor(right) - 148px), calc(100% - 154px));
+      position-try-fallbacks: flip-block; width: 148px; padding: 4px;
+      border: 1px solid var(--line); border-radius: 12px;
+      color: var(--ink); background: var(--page); box-shadow: 0 4px 16px #0003;
+    }
+    .shortcut-menu button {
+      display: block; width: 100%; text-align: start; padding: 8px 12px;
+      font-size: 14px; background: transparent; border: 0; border-radius: 8px;
+    }
+    .shortcut-menu button:is(:hover, :focus-visible) { background: var(--surface); }
     .shortcut:hover { background: var(--surface); }
     .shortcut svg, .shortcut img { display: block; margin: 0 auto 10px; width: 24px; height: 24px; }
     .shortcut-favicon { object-fit: contain; filter: url(#optimium-shortcut-palette); }
@@ -310,7 +349,7 @@ class OptimiumHome extends LitElement {
       max-height: calc(100dvh - 32px); padding: 22px; overflow: auto;
       border: 1px solid var(--line); border-radius: 16px;
     }
-    .shortcut-dialog h2 { margin: 0; font-size: 20px; line-height: 1.3; }
+    .shortcut-dialog h2 { overflow-wrap: anywhere; margin: 0; font-size: 20px; line-height: 1.3; }
     .shortcut-dialog .shortcut-actions { justify-content: flex-end; margin-top: 22px; }
     .shortcut-dialog button[type=submit] { color: var(--page); background: var(--accent); }
     dialog::backdrop { background: #0005; }
@@ -399,7 +438,12 @@ class OptimiumHome extends LitElement {
     this.save({[key]: (event.target as HTMLInputElement).checked});
     if (key === 'weatherEnabled') { void this.updateWeather(); }
   }
-  private async openDialog(kind: 'settings'|'shortcut') {
+  private async openDialog(kind: HomeDialog, index: number|null = null) {
+    if (index !== null) {
+      this.renderRoot.querySelector<HTMLElement>('.shortcut-menu:popover-open')?.hidePopover();
+      this.renderRoot.querySelectorAll<HTMLButtonElement>('.shortcut-more')[index]?.focus();
+    }
+    this.shortcutIndex = index;
     this.historyOpen = false;
     this.activeDialog = kind;
     await this.updateComplete;
@@ -673,7 +717,19 @@ class OptimiumHome extends LitElement {
     }
   }
 
-  private addShortcut(event: SubmitEvent) {
+  private removeShortcut() {
+    const index = this.shortcutIndex;
+    if (index === null || !this.config.shortcuts[index]) { return; }
+    this.closeDialog();
+    this.save({shortcuts: this.config.shortcuts.filter((_, i) => i !== index)});
+    void this.updateComplete.then(() => {
+      const links = this.renderRoot.querySelectorAll<HTMLAnchorElement>('a.shortcut');
+      const next = links[Math.min(index, links.length - 1)] ??
+          this.renderRoot.querySelector<HTMLButtonElement>('button.shortcut');
+      next?.focus();
+    });
+  }
+  private saveShortcut(event: SubmitEvent) {
     event.preventDefault();
     const form = event.target as HTMLFormElement;
     const data = new FormData(form);
@@ -686,19 +742,30 @@ class OptimiumHome extends LitElement {
       field.reportValidity();
       return;
     }
-    if (this.config.shortcuts.length >= SHORTCUT_LIMIT) {
+    const index = this.activeDialog === 'shortcut' ? this.shortcutIndex : null;
+    if (index === null && this.config.shortcuts.length >= SHORTCUT_LIMIT) {
       this.closeDialog();
       this.status = `Можно сохранить до ${SHORTCUT_LIMIT} ярлыков.`;
       return;
     }
     const choice = String(data.get('icon') || 'auto');
-    this.save({shortcuts: [...this.config.shortcuts, {name, url, icon: choice}]});
-    if (choice === 'auto') { void this.cacheShortcutIcon(url); }
+    const shortcuts = [...this.config.shortcuts];
+    const previous = index === null ? undefined : shortcuts[index];
+    const entry = {name, url, icon: choice};
+    if (index === null) {
+      shortcuts.push(entry);
+    } else {
+      shortcuts[index] = entry;
+    }
+    this.save({shortcuts});
+    if (choice === 'auto' && (previous?.url !== url || previous.icon !== 'auto')) {
+      void this.cacheShortcutIcon(url);
+    }
     form.reset();
     if (this.activeDialog === 'shortcut') {
       this.closeDialog();
       // The add tile disappears when the last available slot is filled.
-      if (this.config.shortcuts.length === SHORTCUT_LIMIT) {
+      if (index === null && this.config.shortcuts.length === SHORTCUT_LIMIT) {
         void this.updateComplete.then(() => {
           const links = this.renderRoot.querySelectorAll<HTMLAnchorElement>('a.shortcut');
           links[links.length - 1]?.focus();
@@ -753,37 +820,70 @@ class OptimiumHome extends LitElement {
         </button>`)}</div>
     </fieldset>`;
   }
+  private shortcutTile(shortcut: Shortcut, index: number) {
+    const menuId = `shortcut-menu-${index}`;
+    const label = shortcut.name;
+    return html`<div class="shortcut-tile">
+      <a class="shortcut" href=${shortcut.url}>${this.shortcutIcon(shortcut)}<span>${label}</span></a>
+      <button class="shortcut-more" type="button" popovertarget=${menuId}
+          aria-label=${`Действия с ярлыком «${label}»`}>
+        <svg viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+          <circle cx="8" cy="3.5" r="1.4"/><circle cx="8" cy="8" r="1.4"/><circle cx="8" cy="12.5" r="1.4"/>
+        </svg>
+      </button>
+      <div class="shortcut-menu" id=${menuId} popover="auto" role="group"
+          aria-label=${`Действия с ярлыком «${label}»`}>
+        <button type="button" @click=${() => this.openDialog('shortcut', index)}>Изменить</button>
+        <button type="button" @click=${() => this.openDialog('remove-shortcut', index)}>Удалить</button>
+      </div>
+    </div>`;
+  }
   private shortcutForm() {
     const standalone = this.activeDialog === 'shortcut';
-    return html`<form @submit=${this.addShortcut} @input=${(event: Event) => {
+    const editing = standalone && this.shortcutIndex !== null ?
+        this.config.shortcuts[this.shortcutIndex] : undefined;
+    const iconName = editing?.icon ?? 'auto';
+    return html`<form @submit=${this.saveShortcut} @input=${(event: Event) => {
       if (event.target instanceof HTMLInputElement) { event.target.setCustomValidity(''); }
     }}>
       <label class="field"><span>Название</span>
-        <input name="name" required maxlength="40" ?autofocus=${standalone} placeholder="Например, YouTube">
+        <input name="name" .value=${editing?.name ?? ''} required maxlength="40" ?autofocus=${standalone} placeholder="Например, YouTube">
       </label>
       <label class="field"><span>Адрес сайта</span>
-        <input name="url" inputmode="url" required maxlength="2048" placeholder="https://youtube.com">
+        <input name="url" .value=${editing?.url ?? ''} inputmode="url" required maxlength="2048" placeholder="https://youtube.com">
       </label>
       <label class="field"><span>Иконка</span>
         <select name="icon">
-          <option value="auto">Иконка сайта в цветах темы</option>
-          <option value="globe">Глобус</option><option value="video">Видео</option>
-          <option value="music">Музыка</option><option value="code">Код</option>
-          <option value="book">Чтение</option><option value="link">Ссылка</option>
+          ${Object.entries(SHORTCUT_ICONS).map(([value, label]) =>
+              html`<option value=${value} ?selected=${value === iconName}>${label}</option>`)}
+          ${Object.hasOwn(SHORTCUT_ICONS, iconName) ? nothing :
+              html`<option value=${iconName} selected>Текущая иконка</option>`}
         </select>
       </label>
       <div class="row shortcut-actions">
         ${standalone ? html`<button type="button" @click=${this.closeDialog}>Отмена</button>` : nothing}
-        <button type="submit" class="icon-button">${standalone ? 'Добавить' : html`${icon('plus')}Добавить ярлык`}</button>
+        <button type="submit" class="icon-button">${editing ? 'Сохранить' : standalone ? 'Добавить' : html`${icon('plus')}Добавить ярлык`}</button>
       </div>
     </form>`;
   }
   private renderDialog() {
     if (!this.activeDialog) { return nothing; }
+    if (this.activeDialog === 'remove-shortcut' && this.shortcutIndex !== null) {
+      const entry = this.config.shortcuts[this.shortcutIndex];
+      if (!entry) { return nothing; }
+      return html`<dialog class="shortcut-dialog" aria-labelledby="remove-title" closedby="any"
+          @close=${this.onDialogClosed}>
+        <h2 id="remove-title">Удалить ярлык «${entry.name}»?</h2>
+        <div class="row shortcut-actions">
+          <button autofocus @click=${this.closeDialog}>Отмена</button>
+          <button @click=${this.removeShortcut}>Удалить</button>
+        </div>
+      </dialog>`;
+    }
     if (this.activeDialog === 'shortcut') {
       return html`<dialog class="shortcut-dialog" aria-labelledby="shortcut-title" closedby="any"
           @close=${this.onDialogClosed}>
-        <h2 id="shortcut-title">Добавить ярлык</h2>
+        <h2 id="shortcut-title">${this.shortcutIndex === null ? 'Добавить ярлык' : 'Изменить ярлык'}</h2>
         ${this.shortcutForm()}
       </dialog>`;
     }
@@ -861,7 +961,7 @@ class OptimiumHome extends LitElement {
           </form>
           ${this.historyOpen && this.config.showHistory && matches.length ? html`<div class="history"><p>История поиска на этой странице</p>${matches.map(value => html`<button @click=${() => this.navigate(value)}>${icon('history')}<span>${value}</span></button>`)}</div>` : nothing}
         </div>
-        <section class="shortcuts" aria-label="Ярлыки">${this.config.shortcuts.map(s => html`<a class="shortcut" href=${s.url}>${this.shortcutIcon(s)}<span>${s.name}</span></a>`)}${this.config.shortcuts.length < SHORTCUT_LIMIT ? html`<button class="shortcut" aria-haspopup="dialog" @click=${() => this.openDialog('shortcut')}>${icon('plus')}<span>Добавить</span></button>` : nothing}</section>
+        <section class="shortcuts" aria-label="Ярлыки">${this.config.shortcuts.map((shortcut, index) => this.shortcutTile(shortcut, index))}${this.config.shortcuts.length < SHORTCUT_LIMIT ? html`<button class="shortcut" aria-haspopup="dialog" @click=${() => this.openDialog('shortcut')}>${icon('plus')}<span>Добавить</span></button>` : nothing}</section>
         ${showWeatherWidget || (this.config.soundcloudMiniEnabled && this.soundcloudState?.available) || (this.config.soundcloudEnabled && this.config.soundcloudUrl) ? html`<section class="widgets">
           ${showWeatherWidget ? html`<article class="widget"><h2>${icon('cloud')}Погода</h2>${this.weatherContent()}</article>` : nothing}
           ${this.config.soundcloudMiniEnabled && this.soundcloudState?.available ? this.soundcloudMiniPlayer() : nothing}
