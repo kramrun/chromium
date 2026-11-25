@@ -13,6 +13,7 @@
 #include <string_view>
 
 #include "base/component_export.h"
+#include "base/functional/function_ref.h"
 #include "base/values.h"
 
 namespace ui {
@@ -54,6 +55,22 @@ COMPONENT_EXPORT(UI_BASE)
 bool ReplaceTemplateExpressionsInJS(std::string_view source,
                                     const TemplateReplacements& replacements,
                                     std::string* output);
+
+// Lookup variants let immutable resource maps supply their existing strings.
+// The returned value must remain valid for the duration of the call.
+using TemplateReplacementLookup =
+    base::FunctionRef<const std::string*(const std::string& key)>;
+
+COMPONENT_EXPORT(UI_BASE)
+std::string ReplaceTemplateExpressionsWithLookup(
+    std::string_view source,
+    TemplateReplacementLookup lookup,
+    bool skip_unexpected_placeholder_check = false);
+
+COMPONENT_EXPORT(UI_BASE)
+bool ReplaceTemplateExpressionsInJSWithLookup(std::string_view source,
+                                              TemplateReplacementLookup lookup,
+                                              std::string* output);
 
 }  // namespace ui
 

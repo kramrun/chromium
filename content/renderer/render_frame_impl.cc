@@ -1385,12 +1385,10 @@ mojo::ScopedDataPipeConsumerHandle FillResponseForInitialWebUI(
   // `response_body` pipe point to the result.
   const blink::mojom::LocalResourceSourcePtr& source =
       local_resource_loader_config->sources.at(origin);
-  const std::map<std::string, std::string> replacement_strings(
-      source->replacement_strings.begin(), source->replacement_strings.end());
 
   auto [response_body, output_size] =
       webui::GetPipe(LocalResourceURLLoaderFactory::GetResource(
-                         url, source, replacement_strings, "text/html"),
+                         url, source, "text/html"),
                      /*requested_range=*/std::nullopt);
 
   // Update the content length, and send the completion signal with the

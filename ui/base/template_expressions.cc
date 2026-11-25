@@ -12,6 +12,7 @@
 
 #include "base/check_op.h"
 #include "base/compiler_specific.h"
+#include "base/containers/map_util.h"
 #include "base/no_destructor.h"
 #include "base/notreached.h"
 #include "base/strings/escape.h"
@@ -135,12 +136,11 @@ bool HasUnexpectedPlaceholder(const std::string& key,
 
 bool ReplaceTemplateExpressionsInternal(
     std::string_view source,
-    const ui::TemplateReplacements& replacements,
+    ui::TemplateReplacementLookup lookup,
     bool is_javascript,
     std::string* formatted,
     bool skip_unexpected_placeholder_check = false) {
-  const size_t kValueLengthGuess = 16;
-  formatted->reserve(source.length() + replacements.size() * kValueLengthGuess);
+  formatted->reserve(source.size());
   // Two position markers are used as cursors through the |source|.
   // The |current_pos| will follow behind |next_pos|.
   size_t current_pos = 0;
@@ -166,11 +166,11 @@ bool ReplaceTemplateExpressionsInternal(
     std::string key(source.substr(current_pos, key_end - current_pos));
     CHECK(!key.empty());
 
-    auto value = replacements.find(key);
-    CHECK(value != replacements.end()) << "$i18n replacement key \"" << key
+    const std::string* value = lookup(key);
+    CHECK(value) << "$i18n replacement key \"" << key
                                        << "\" not found";
 
-    std::string replacement = value->second;
+    std::string replacement = *value;
     if (is_javascript) {
       // Run JS escaping first.
       std::optional<char> last = formatted->empty()
@@ -227,6 +227,15 @@ void TemplateReplacementsFromDictionaryValue(
 bool ReplaceTemplateExpressionsInJS(std::string_view source,
                                     const TemplateReplacements& replacements,
                                     std::string* formatted) {
+  return ReplaceTemplateExpressionsInJSWithLookup(
+      source,
+      [&](const std::string& key) { return base::FindOrNull(replacements, key); },
+      formatted);
+}
+
+bool ReplaceTemplateExpressionsInJSWithLookup(std::string_view source,
+                                              TemplateReplacementLookup lookup,
+                                              std::string* formatted) {
   CHECK(formatted->empty());
   std::string_view remaining = source;
   while (true) {
@@ -241,12 +250,12 @@ bool ReplaceTemplateExpressionsInJS(std::string_view source,
     // If there are no more templates, copy the remaining JS to the output and
     // return true.
     if (current_template.type == NONE) {
-      formatted->append(std::string(remaining));
+      formatted->append(remaining);
       return true;
     }
 
     // Copy the JS before the template to the output.
-    formatted->append(std::string(remaining.substr(0, current_template.start)));
+    formatted->append(remaining.substr(0, current_template.start));
 
     // Retrieve the HTML portion of the source.
     std::string_view html_template =
@@ -254,7 +263,7 @@ bool ReplaceTemplateExpressionsInJS(std::string_view source,
 
     // Perform replacements with JS escaping.
     std::string formatted_html;
-    if (!ReplaceTemplateExpressionsInternal(html_template, replacements, true,
+    if (!ReplaceTemplateExpressionsInternal(html_template, lookup, true,
                                             &formatted_html)) {
       return false;
     }
@@ -271,8 +280,18 @@ bool ReplaceTemplateExpressionsInJS(std::string_view source,
 std::string ReplaceTemplateExpressions(std::string_view source,
                                        const TemplateReplacements& replacements,
                                        bool skip_unexpected_placeholder_check) {
+  return ReplaceTemplateExpressionsWithLookup(
+      source,
+      [&](const std::string& key) { return base::FindOrNull(replacements, key); },
+      skip_unexpected_placeholder_check);
+}
+
+std::string ReplaceTemplateExpressionsWithLookup(
+    std::string_view source,
+    TemplateReplacementLookup lookup,
+    bool skip_unexpected_placeholder_check) {
   std::string formatted;
-  ReplaceTemplateExpressionsInternal(source, replacements, false, &formatted,
+  ReplaceTemplateExpressionsInternal(source, lookup, false, &formatted,
                                      skip_unexpected_placeholder_check);
   return formatted;
 }

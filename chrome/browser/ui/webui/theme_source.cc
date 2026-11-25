@@ -318,6 +318,45 @@ std::optional<std::string> ThemeSource::GenerateColorsCss(
     return std::nullopt;
   }
 
+  auto start_stylesheet = [&](size_t reserve) {
+    std::string css;
+    css.reserve(reserve);
+    css.append(shadow_host ? ":host{" : "html:not(#z){");
+    if (is_grayscale) {
+      css.append("--user-color-source:baseline-grayscale;");
+    } else if (is_baseline) {
+      css.append("--user-color-source:baseline-default;");
+    }
+    return css;
+  };
+  auto append_color = [&](std::string& css, std::string_view name,
+                          ui::ColorId id) {
+    const SkColor color = color_provider.GetColor(id);
+    css.append(name);
+    css.push_back(':');
+    ui::FastAppendCssHexColor(color, css);
+    css.push_back(';');
+    if (generate_rgb_vars) {
+      css.append(name);
+      css.append("-rgb:");
+      ui::FastAppendRgbColor(color, css);
+      css.push_back(';');
+    }
+  };
+
+  // The Optimium dashboard inherits three theme colors. Serve those from the
+  // same ColorProvider as the full sheet, including on live theme changes.
+  if (sets_param == "optimium-home") {
+    auto css = start_stylesheet(256);
+    append_color(css, ui::ColorIdToCSSColorId(ui::kColorSysPrimary),
+                 ui::kColorSysPrimary);
+    for (ui::ColorId id : {kColorNewTabPageBackground, kColorNewTabPageText}) {
+      append_color(css, ChromeColorIdToCSSColorId(id), id);
+    }
+    css.push_back('}');
+    return css;
+  }
+
   std::vector<std::string_view> color_id_sets = base::SplitStringPiece(
       sets_param, ",", base::TRIM_WHITESPACE, base::SPLIT_WANT_ALL);
 
@@ -365,46 +404,16 @@ std::optional<std::string> ThemeSource::GenerateColorsCss(
       }
     }
 
-    // Generate the CSS. Pre-calculate selector and theme info.
-    std::string css_string;
-    css_string.reserve(75000);
-
-    if (shadow_host) {
-      css_string.append(":host{");
-    } else {
-      css_string.append("html:not(#z){");
-    }
-
-    if (is_grayscale) {
-      css_string.append("--user-color-source:baseline-grayscale;");
-    } else if (is_baseline) {
-      css_string.append("--user-color-source:baseline-default;");
-    }
-
+    auto css_string = start_stylesheet(75000);
     for (const auto& def : definitions) {
       if (!std::ranges::contains(color_id_sets, def.name)) {
         continue;
       }
 
       for (ui::ColorId id = def.start; id < def.end; ++id) {
-        const SkColor color = color_provider.GetColor(id);
-        const std::string_view var_name = def.name_mapper.Run(id);
-        if (var_name.empty()) {
-          continue;
-        }
-
-        // Format: --var-name:#RRGGBBAA;
-        css_string.append(var_name);
-        css_string.push_back(':');
-        ui::FastAppendCssHexColor(color, css_string);
-        css_string.push_back(';');
-
-        if (generate_rgb_vars) {
-          // Format: --var-name-rgb:R,G,B;
-          css_string.append(var_name);
-          css_string.append("-rgb:");
-          ui::FastAppendRgbColor(color, css_string);
-          css_string.push_back(';');
+        const std::string_view name = def.name_mapper.Run(id);
+        if (!name.empty()) {
+          append_color(css_string, name, id);
         }
       }
     }
@@ -464,26 +473,7 @@ std::optional<std::string> ThemeSource::GenerateColorsCss(
     }
   }
 
-  // Generate the CSS. Pre-calculate selector and theme info.
-  std::string css_header;
-  if (shadow_host) {
-    css_header = ":host{";
-  } else {
-    css_header = "html:not(#z){";
-  }
-
-  if (is_grayscale) {
-    base::StrAppend(&css_header, {"--user-color-source:baseline-grayscale;"});
-  } else if (is_baseline) {
-    base::StrAppend(&css_header, {"--user-color-source:baseline-default;"});
-  }
-
-  // Reserve memory to reduce reallocations. 75KB is a reasonable heuristic for
-  // a full theme dump, minimizing string resizing during the loop.
-  std::string css_string;
-  css_string.reserve(75000);
-  css_string.append(css_header);
-
+  auto css_string = start_stylesheet(75000);
   for (const auto& def : definitions) {
     if (!std::ranges::contains(color_id_sets, def.name)) {
       continue;

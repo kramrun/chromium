@@ -11,6 +11,7 @@
 
 #include <array>
 #include <memory>
+#include <vector>
 
 #include "testing/gtest/include/gtest/gtest.h"
 
@@ -54,6 +55,27 @@ TEST_F(OffsetByteQueueTest, PeekAt) {
 
   buf = queue_->DataAt(512);
   EXPECT_TRUE(buf.empty());
+}
+
+TEST(OffsetByteQueueResizeTest, SmallAppendPreservesSuffixAndOffsets) {
+  OffsetByteQueue queue;
+  std::vector<uint8_t> segment(2 * 1024 * 1024, 0x41);
+  segment.back() = 0x42;
+  ASSERT_TRUE(queue.Push(segment));
+  queue.Pop(base::checked_cast<int>(segment.size() - 2));
+  constexpr std::array<uint8_t, 3> next = {0x11, 0x22, 0x33};
+  ASSERT_TRUE(queue.Push(next));
+  constexpr std::array<uint8_t, 5> expected = {0x41, 0x42, 0x11, 0x22, 0x33};
+  EXPECT_EQ(base::span(expected), queue.Data());
+  EXPECT_EQ(base::span(next), queue.DataAt(segment.size()));
+
+  queue.Reset();
+  EXPECT_EQ(0, queue.head());
+  EXPECT_EQ(0, queue.tail());
+  ASSERT_TRUE(queue.Push(segment));
+  queue.Reset();
+  ASSERT_TRUE(queue.Push(next));
+  EXPECT_EQ(base::span(next), queue.Data());
 }
 
 TEST_F(OffsetByteQueueTest, Trim) {

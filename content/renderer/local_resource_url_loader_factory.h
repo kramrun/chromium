@@ -34,16 +34,6 @@ namespace content {
 class CONTENT_EXPORT LocalResourceURLLoaderFactory
     : public network::mojom::URLLoaderFactory {
  public:
-  struct Source {
-    Source(blink::mojom::LocalResourceSourcePtr source,
-           std::map<std::string, std::string> replacement_strings);
-    Source(Source&& other);
-    Source& operator=(Source&& other);
-    ~Source();
-    blink::mojom::LocalResourceSourcePtr source;
-    std::map<std::string, std::string> replacement_strings;
-  };
-
   LocalResourceURLLoaderFactory(
       blink::mojom::LocalResourceLoaderConfigPtr config,
       mojo::PendingRemote<network::mojom::URLLoaderFactory> fallback);
@@ -67,10 +57,11 @@ class CONTENT_EXPORT LocalResourceURLLoaderFactory
   static scoped_refptr<base::RefCountedMemory> GetResource(
       const GURL& url,
       const blink::mojom::LocalResourceSourcePtr& source,
-      const std::map<std::string, std::string>& replacement_strings,
       const std::string& mime_type);
 
  private:
+  using SourceMap = decltype(blink::mojom::LocalResourceLoaderConfig::sources);
+
   // CanServe returns true if and only if all of the following are true:
   //
   // 1. The LocalResourceURLLoaderFactory has a resource ID for the given URL
@@ -95,8 +86,7 @@ class CONTENT_EXPORT LocalResourceURLLoaderFactory
   // and sends it to the URLLoaderClient. This is static because it is posted as
   // a task which may outlive |this|.
   static void GetResourceAndRespond(
-      const scoped_refptr<base::RefCountedData<std::map<url::Origin, Source>>>
-          sources,
+      const scoped_refptr<const base::RefCountedData<SourceMap>> sources,
       const network::ResourceRequest& request,
       mojo::PendingRemote<network::mojom::URLLoaderClient> client);
 
@@ -104,8 +94,7 @@ class CONTENT_EXPORT LocalResourceURLLoaderFactory
   // (path-to-resource-ID mappings and string replacement maps).
   // It is ref-counted because it needs to be accessed in an async call to
   // GetResourceAndRespond, which may outlive |this|.
-  const scoped_refptr<base::RefCountedData<std::map<url::Origin, Source>>>
-      sources_;
+  const scoped_refptr<const base::RefCountedData<SourceMap>> sources_;
 
   // Pipe to fallback factory, which should be the WebUIURLLoaderFactory in the
   // browser process. This is required because there are certain resources that
