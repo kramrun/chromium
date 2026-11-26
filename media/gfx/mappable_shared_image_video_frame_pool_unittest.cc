@@ -13,7 +13,7 @@
 #include "base/feature_list.h"
 #include "base/functional/bind.h"
 #include "base/task/single_thread_task_runner.h"
-#include "base/test/simple_test_tick_clock.h"
+#include "base/test/test_mock_time_task_runner.h"
 #include "base/test/test_simple_task_runner.h"
 #include "base/time/time.h"
 #include "components/viz/common/resources/shared_image_format.h"
@@ -33,12 +33,8 @@ class MappableSharedImageVideoFramePoolTest : public ::testing::Test {
  public:
   MappableSharedImageVideoFramePoolTest() = default;
   void SetUp() override {
-    // Seed test clock with some dummy non-zero value to avoid confusion with
-    // empty base::TimeTicks values.
-    test_clock_.Advance(base::Seconds(1234));
-
     sii_ = base::MakeRefCounted<gpu::TestSharedImageInterface>();
-    media_task_runner_ = base::MakeRefCounted<base::TestSimpleTaskRunner>();
+    media_task_runner_ = base::MakeRefCounted<base::TestMockTimeTaskRunner>();
     copy_task_runner_ = base::MakeRefCounted<base::TestSimpleTaskRunner>();
     media_task_runner_handle_ =
         std::make_unique<base::SingleThreadTaskRunner::CurrentDefaultHandle>(
@@ -49,7 +45,8 @@ class MappableSharedImageVideoFramePoolTest : public ::testing::Test {
         std::make_unique<MappableSharedImageVideoFramePool>(
             media_task_runner_, copy_task_runner_.get(),
             mock_gpu_factories_.get());
-    mappable_shared_image_pool_->SetTickClockForTesting(&test_clock_);
+    mappable_shared_image_pool_->SetTickClockForTesting(
+        media_task_runner_->GetMockTickClock());
   }
 
   void TearDown() override {
@@ -243,11 +240,10 @@ class MappableSharedImageVideoFramePoolTest : public ::testing::Test {
   base::HeapArray<uint8_t> v_data_;
   base::HeapArray<uint8_t> uv_data_;
 
-  base::SimpleTestTickClock test_clock_;
   std::unique_ptr<MockGpuVideoAcceleratorFactories> mock_gpu_factories_;
   std::unique_ptr<MappableSharedImageVideoFramePool>
       mappable_shared_image_pool_;
-  scoped_refptr<base::TestSimpleTaskRunner> media_task_runner_;
+  scoped_refptr<base::TestMockTimeTaskRunner> media_task_runner_;
   scoped_refptr<base::TestSimpleTaskRunner> copy_task_runner_;
   // MappableSharedImageVideoFramePool uses
   // base::BindPostTaskToCurrentDefault(), which requires
@@ -1023,12 +1019,17 @@ TEST_F(MappableSharedImageVideoFramePoolTest, StaleFramesAreExpired) {
   RunUntilIdle();
   EXPECT_EQ(2u, sii_->shared_image_count());
 
-  // Advance clock far enough to hit stale timer; ensure only frame_1 has its
-  // resources released.
-  test_clock_.Advance(base::Minutes(1));
+  // Keep the other frame displayed. No more releases arrive during a pause.
+  media_task_runner_->FastForwardBy(base::Seconds(9));
+  EXPECT_EQ(2u, sii_->shared_image_count());
+  media_task_runner_->FastForwardBy(base::Seconds(1));
+  EXPECT_EQ(1u, sii_->shared_image_count());
+
   frame_2 = nullptr;
   RunUntilIdle();
   EXPECT_EQ(1u, sii_->shared_image_count());
+  media_task_runner_->FastForwardBy(base::Seconds(10));
+  EXPECT_EQ(0u, sii_->shared_image_count());
 }
 
 // Test when we request two copies in a row, there should be at most one frame

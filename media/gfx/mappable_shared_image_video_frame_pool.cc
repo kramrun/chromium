@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <list>
 #include <memory>
+#include <optional>
 #include <utility>
 
 #include "base/barrier_closure.h"
@@ -38,6 +39,7 @@
 #include "base/task/sequenced_task_runner.h"
 #include "base/time/default_tick_clock.h"
 #include "base/time/time.h"
+#include "base/timer/timer.h"
 #include "base/trace_event/memory_dump_manager.h"
 #include "base/trace_event/memory_dump_provider.h"
 #include "base/trace_event/trace_event.h"
@@ -127,6 +129,10 @@ class MappableSharedImageVideoFramePool::PoolImpl
   friend class base::RefCountedThreadSafe<
       MappableSharedImageVideoFramePool::PoolImpl>;
   ~PoolImpl() override;
+
+  static constexpr base::TimeDelta kStaleFrameLimit = base::Seconds(10);
+  void ScheduleIdleCleanup(base::TimeDelta delay);
+  void ReleaseStaleResources();
 
   // Resource needed to compose a frame.
   // TODO(dalecurtis): The method of use marking used is very brittle
@@ -269,6 +275,8 @@ class MappableSharedImageVideoFramePool::PoolImpl
 
   // Pool of resources.
   std::list<raw_ptr<FrameResource, CtnExperimental>> resources_pool_;
+  // Created and destroyed on the media sequence, including during shutdown.
+  std::optional<base::OneShotTimer> idle_cleanup_;
 
   GpuVideoAcceleratorFactories::OutputFormat output_format_;
 
@@ -1067,7 +1075,7 @@ scoped_refptr<VideoFrame> MappableSharedImageVideoFramePool::PoolImpl::
   DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
   gpu::SharedImageInterface* sii = gpu_factories_->SharedImageInterface();
   if (!sii) {
-    frame_resource->MarkUnused(tick_clock_->NowTicks());
+    SharedImageReleased(frame_resource, frame_resource->sync_token);
     return nullptr;
   }
 
@@ -1103,7 +1111,6 @@ scoped_refptr<VideoFrame> MappableSharedImageVideoFramePool::PoolImpl::
       VideoFrame::ReleaseMailboxCB(), visible_rect, natural_size, timestamp);
 
   if (!frame) {
-    frame_resource->MarkUnused(tick_clock_->NowTicks());
     SharedImageReleased(frame_resource, sync_token);
     return nullptr;
   }
@@ -1127,6 +1134,7 @@ void MappableSharedImageVideoFramePool::PoolImpl::Shutdown() {
 
   // Delete all the resources on the media thread.
   in_shutdown_ = true;
+  idle_cleanup_.reset();
   for (FrameResource* frame_resource : resources_pool_) {
     // Will be deleted later upon return to pool.
     if (frame_resource->is_used()) {
@@ -1318,21 +1326,46 @@ void MappableSharedImageVideoFramePool::PoolImpl::SharedImageReleased(
     return;
   }
 
-  const base::TimeTicks now = tick_clock_->NowTicks();
-  frame_resource->MarkUnused(now);
-  auto it = resources_pool_.begin();
-  while (it != resources_pool_.end()) {
-    FrameResource* resource = *it;
+  frame_resource->MarkUnused(tick_clock_->NowTicks());
+  ScheduleIdleCleanup(kStaleFrameLimit);
+}
 
-    constexpr base::TimeDelta kStaleFrameLimit = base::Seconds(10);
-    if (!resource->is_used() &&
-        now - resource->last_use_time() > kStaleFrameLimit) {
-      resources_pool_.erase(it++);
-      UpdateSharedImageDestructionTokenForResource(gpu_factories_, resource);
-      delete resource;
-    } else {
-      it++;
+void MappableSharedImageVideoFramePool::PoolImpl::ScheduleIdleCleanup(
+    base::TimeDelta delay) {
+  DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
+  if (!idle_cleanup_) {
+    idle_cleanup_.emplace(tick_clock_);
+    idle_cleanup_->SetTaskRunner(media_task_runner_);
+  }
+  if (!idle_cleanup_->IsRunning()) {
+    idle_cleanup_->Start(FROM_HERE, delay, this,
+                         &PoolImpl::ReleaseStaleResources);
+  }
+}
+
+void MappableSharedImageVideoFramePool::PoolImpl::ReleaseStaleResources() {
+  DCHECK(media_task_runner_->RunsTasksInCurrentSequence());
+  const base::TimeTicks now = tick_clock_->NowTicks();
+  base::TimeDelta next_delay;
+  for (auto it = resources_pool_.begin(); it != resources_pool_.end();) {
+    FrameResource* resource = *it;
+    if (resource->is_used()) {
+      ++it;
+      continue;
     }
+    const auto remaining = resource->last_use_time() + kStaleFrameLimit - now;
+    if (remaining.is_positive()) {
+      // Batch recently returned frames into a single subsequent sweep.
+      next_delay = std::max(next_delay, remaining);
+      ++it;
+      continue;
+    }
+    it = resources_pool_.erase(it);
+    UpdateSharedImageDestructionTokenForResource(gpu_factories_, resource);
+    delete resource;
+  }
+  if (next_delay.is_positive()) {
+    ScheduleIdleCleanup(next_delay);
   }
 }
 
