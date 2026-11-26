@@ -19,6 +19,8 @@
 #include "base/process/memory.h"
 #include "base/strings/stringprintf.h"
 #include "base/task/single_thread_task_runner.h"
+#include "base/task/thread_pool.h"
+#include "base/task/thread_pool/thread_pool_instance.h"
 #include "base/time/time.h"
 #include "base/trace_event/memory_allocator_dump.h"
 #include "base/trace_event/memory_dump_manager.h"
@@ -60,9 +62,14 @@ struct FrameBufferPool::FrameBuffer {
   // Needs to be a counter since a frame buffer might be used multiple times.
   int held_by_frame = 0;
   base::TimeTicks last_use_time;
+  base::TimeTicks small_requests_since;
+  size_t largest_small_request = 0;
 };
 
 namespace {
+
+constexpr auto kIdleTimeout =
+    base::Seconds(std::to_underlying(FrameBufferPool::kStaleFrameLimitSecs));
 
 BytesArray AllocateMemory(size_t min_size,
                           bool zero_initialize,
@@ -110,18 +117,63 @@ base::span<uint8_t> FrameBufferPool::GetFrameBuffer(size_t min_size,
         std::make_unique<FrameBufferMemoryDumpProviderImpl>(this);
   }
 
-  // Check if a free frame buffer exists.
-  auto it = std::ranges::find_if_not(frame_buffers_, &IsUsedLocked,
-                                     &std::unique_ptr<FrameBuffer>::get);
+  // A resolution change can leave free buffers of several sizes. Reuse the
+  // smallest one that fits. If all are too small, growing the largest keeps
+  // the total capacity of the remaining buffers as low as possible.
+  const auto end = frame_buffers_.end();
+  auto fit = end;
+  auto grow = end;
+  for (auto candidate = frame_buffers_.begin(); candidate != end; ++candidate) {
+    if (IsUsedLocked(candidate->get())) {
+      continue;
+    }
+    const size_t size = (*candidate)->data.size();
+    if (size >= min_size) {
+      if (fit == end || size < (*fit)->data.size()) {
+        fit = candidate;
+        if (size == min_size) {
+          break;
+        }
+      }
+    } else if (grow == end || size > (*grow)->data.size()) {
+      grow = candidate;
+    }
+  }
 
-  // If not, create one.
-  if (it == frame_buffers_.end())
+  auto it = fit != end ? fit : grow;
+  if (it == end) {
     it = frame_buffers_.insert(it, std::make_unique<FrameBuffer>());
+  }
 
   auto& frame_buffer = *it;
 
   // Resize the frame buffer if necessary.
   frame_buffer->held_by_library = true;
+  // A decoder can keep reusing a 4K allocation for smaller frames forever:
+  // each release refreshes last_use_time, so the idle eviction never sees it.
+  // Size the replacement for the largest request in a sustained smaller run.
+  const size_t capacity = frame_buffer->data.size();
+  if (min_size > 0 && min_size <= capacity / 2 &&
+      capacity - min_size >= 1024 * 1024) {
+    const base::TimeTicks now = tick_clock_->NowTicks();
+    if (!frame_buffer->largest_small_request) {
+      frame_buffer->small_requests_since = now;
+    }
+    frame_buffer->largest_small_request =
+        std::max(frame_buffer->largest_small_request, min_size);
+    if (now - frame_buffer->small_requests_since >= kIdleTimeout) {
+      // If the optional allocation fails, the existing buffer is still usable.
+      auto smaller =
+          AllocateMemory(frame_buffer->largest_small_request,
+                         zero_initialize_memory_, force_allocation_error_);
+      if (!smaller.empty()) {
+        frame_buffer->data = std::move(smaller);
+      }
+      frame_buffer->largest_small_request = 0;
+    }
+  } else {
+    frame_buffer->largest_small_request = 0;
+  }
   if (frame_buffer->data.size() < min_size) {
     // Free the existing |data| first so that the memory can be reused,
     // if possible.
@@ -147,11 +199,11 @@ void FrameBufferPool::ReleaseFrameBuffer(void* fb_priv) {
   // Note: The library may invoke this method multiple times for the same frame,
   // so we can't DCHECK that |held_by_library| is true.
   auto* frame_buffer = static_cast<FrameBuffer*>(fb_priv);
-  frame_buffer->held_by_library = false;
-
-  if (!IsUsedLocked(frame_buffer)) {
-    frame_buffer->last_use_time = tick_clock_->NowTicks();
+  if (!frame_buffer->held_by_library) {
+    return;
   }
+  frame_buffer->held_by_library = false;
+  MarkUnusedLocked(frame_buffer);
 }
 
 base::OnceClosure FrameBufferPool::CreateFrameCallback(void* fb_priv) {
@@ -249,15 +301,65 @@ void FrameBufferPool::OnVideoFrameDestroyed(FrameBuffer* frame_buffer) {
     return;
   }
 
-  const base::TimeTicks now = tick_clock_->NowTicks();
-  if (!IsUsedLocked(frame_buffer)) {
-    frame_buffer->last_use_time = now;
-  }
+  MarkUnusedLocked(frame_buffer);
+}
 
-  std::erase_if(frame_buffers_, [now](const std::unique_ptr<FrameBuffer>& buf) {
-    return !IsUsedLocked(buf.get()) &&
-           now - buf->last_use_time >
-               base::Seconds(std::to_underlying(kStaleFrameLimitSecs));
+void FrameBufferPool::MarkUnusedLocked(FrameBuffer* buffer) {
+  if (IsUsedLocked(buffer) || buffer->data.empty()) {
+    return;
+  }
+  const auto now = tick_clock_->NowTicks();
+  buffer->last_use_time = now;
+  if (trim_pending_) {
+    return;
+  }
+  // Codecs can return buffers on library threads without a current sequenced
+  // task runner. Synchronous embedders can also operate without a ThreadPool.
+  if (base::ThreadPoolInstance::Get()) {
+    ScheduleTrimLocked();
+  } else {
+    TrimIdleBuffersLocked(now);
+  }
+}
+
+void FrameBufferPool::ScheduleTrimLocked() {
+  trim_pending_ = base::ThreadPool::PostDelayedTask(
+      FROM_HERE, {base::TaskPriority::BEST_EFFORT},
+      base::BindOnce(&FrameBufferPool::TrimIdleBuffers, this), kIdleTimeout);
+}
+
+void FrameBufferPool::TrimIdleBuffers() {
+  base::AutoLock lock(lock_);
+  trim_pending_ = false;
+  // Shutdown releases unused allocations immediately. The last queued task
+  // may outlive the decoder and its test clock.
+  if (!in_shutdown_ && TrimIdleBuffersLocked(tick_clock_->NowTicks())) {
+    ScheduleTrimLocked();
+  }
+}
+
+bool FrameBufferPool::TrimIdleBuffersLocked(base::TimeTicks now) {
+  bool has_recently_returned_buffers = false;
+  for (auto& buffer : frame_buffers_) {
+    if (IsUsedLocked(buffer.get()) || buffer->data.empty()) {
+      continue;
+    }
+    if (now - buffer->last_use_time < kIdleTimeout) {
+      has_recently_returned_buffers = true;
+      continue;
+    }
+    // The codec can return an opaque handle more than once. Keep the small
+    // handle valid and available for reuse while releasing the pixel storage.
+    buffer->data = {};
+    buffer->largest_small_request = 0;
+  }
+  return has_recently_returned_buffers;
+}
+
+size_t FrameBufferPool::get_pool_size_for_testing() const {
+  base::AutoLock lock(lock_);
+  return std::ranges::count_if(frame_buffers_, [](const auto& buffer) {
+    return !buffer->data.empty();
   });
 }
 

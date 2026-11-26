@@ -53,10 +53,7 @@ class MEDIA_EXPORT FrameBufferPool
   // callback may be called on any thread.
   base::OnceClosure CreateFrameCallback(void* fb_priv);
 
-  size_t get_pool_size_for_testing() const {
-    base::AutoLock lock(lock_);
-    return frame_buffers_.size();
-  }
+  size_t get_pool_size_for_testing() const;
 
   void set_tick_clock_for_testing(const base::TickClock* tick_clock) {
     base::AutoLock lock(lock_);
@@ -96,6 +93,11 @@ class MEDIA_EXPORT FrameBufferPool
   // called with `lock_` held.
   void EraseUnusedResourcesLocked();
 
+  void MarkUnusedLocked(FrameBuffer* buffer) EXCLUSIVE_LOCKS_REQUIRED(lock_);
+  void ScheduleTrimLocked() EXCLUSIVE_LOCKS_REQUIRED(lock_);
+  bool TrimIdleBuffersLocked(base::TimeTicks now) EXCLUSIVE_LOCKS_REQUIRED(lock_);
+  void TrimIdleBuffers();
+
   // Method that gets called when a VideoFrame that references this pool gets
   // destroyed.
   void OnVideoFrameDestroyed(FrameBuffer* frame_buffer);
@@ -114,6 +116,8 @@ class MEDIA_EXPORT FrameBufferPool
   bool in_shutdown_ GUARDED_BY(lock_) = false;
 
   bool force_allocation_error_ GUARDED_BY(lock_) = false;
+
+  bool trim_pending_ GUARDED_BY(lock_) = false;
 
   // |tick_clock_| is always a DefaultTickClock outside of testing.
   raw_ptr<const base::TickClock> tick_clock_ GUARDED_BY(lock_);
