@@ -217,6 +217,10 @@ void MP4StreamParser::Flush() {
   ChangeState(kParsingBoxes);
 }
 
+void MP4StreamParser::MarkEndOfStream() {
+  queue_.ReleaseUnusedStorage();
+}
+
 bool MP4StreamParser::GetGenerateTimestampsFlag() const {
   return false;
 }

@@ -57,6 +57,7 @@ class MEDIA_EXPORT MP4StreamParser : public StreamParser {
             EndMediaSegmentCB end_of_segment_cb,
             MediaLog* media_log) override;
   void Flush() override;
+  void MarkEndOfStream() override;
   bool GetGenerateTimestampsFlag() const override;
   [[nodiscard]] bool AppendToParseBuffer(
       base::span<const uint8_t> buf) override;

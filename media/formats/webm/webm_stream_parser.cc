@@ -74,6 +74,12 @@ void WebMStreamParser::Flush() {
   }
 }
 
+void WebMStreamParser::MarkEndOfStream() {
+  if (byte_queue_.Data().empty()) {
+    byte_queue_.Reset();
+  }
+}
+
 bool WebMStreamParser::GetGenerateTimestampsFlag() const {
   return false;
 }

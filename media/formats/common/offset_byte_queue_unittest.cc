@@ -78,6 +78,25 @@ TEST(OffsetByteQueueResizeTest, SmallAppendPreservesSuffixAndOffsets) {
   EXPECT_EQ(base::span(next), queue.Data());
 }
 
+TEST(OffsetByteQueueResizeTest, ReleaseUnusedStoragePreservesStreamPosition) {
+  OffsetByteQueue queue;
+  const std::vector<uint8_t> segment(2 * 1024 * 1024, 0x41);
+  ASSERT_TRUE(queue.Push(segment));
+  queue.Pop(base::checked_cast<int>(segment.size()) - 1);
+  queue.ReleaseUnusedStorage();
+  ASSERT_EQ(1u, queue.Data().size());
+  EXPECT_EQ(0x41, queue.Data().front());
+
+  queue.Pop(1);
+  queue.ReleaseUnusedStorage();
+  queue.ReleaseUnusedStorage();
+  EXPECT_EQ(static_cast<int64_t>(segment.size()), queue.head());
+  EXPECT_EQ(queue.head(), queue.tail());
+  constexpr std::array<uint8_t, 2> next = {0x11, 0x22};
+  ASSERT_TRUE(queue.Push(next));
+  EXPECT_EQ(base::span(next), queue.DataAt(segment.size()));
+}
+
 TEST_F(OffsetByteQueueTest, Trim) {
   EXPECT_TRUE(queue_->Trim(128));
   EXPECT_TRUE(queue_->Trim(384));

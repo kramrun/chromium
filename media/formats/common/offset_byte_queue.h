@@ -47,6 +47,14 @@ class MEDIA_EXPORT OffsetByteQueue {
   // buffered are still cleared).
   bool Trim(int64_t max_offset);
 
+  // Drops a drained queue's large backing allocation. Keep the absolute
+  // offsets and any unparsed suffix so that appending can resume.
+  void ReleaseUnusedStorage() {
+    if (queue_.Data().empty()) {
+      queue_.Reset();
+    }
+  }
+
   // The head and tail positions, in terms of the file's absolute offsets.
   // tail() is an exclusive bound.
   int64_t head() const { return head_; }
