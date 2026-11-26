@@ -186,11 +186,6 @@ class GPU_IPC_SERVICE_EXPORT GpuChannel : public IPC::Listener,
     return shared_image_stub_.get();
   }
 
-  const gpu::GPUInfo& gpu_info() const { return gpu_info_; }
-  const gpu::GpuFeatureInfo& gpu_feature_info() const {
-    return gpu_feature_info_;
-  }
-
   const gpu::SharedImageCapabilities& shared_image_capabilities() const {
     CHECK(shared_image_stub_);
     return shared_image_capabilities_;
@@ -266,8 +261,9 @@ class GPU_IPC_SERVICE_EXPORT GpuChannel : public IPC::Listener,
   // The id of the client who is on the other side of the channel.
   const int32_t client_id_;
 
-  const gpu::GPUInfo gpu_info_;
-  const gpu::GpuFeatureInfo gpu_feature_info_;
+  // Only early channels need a snapshot to reply to GetGPUInfo on the IO thread.
+  struct EarlyChannelInfo;
+  const std::unique_ptr<const EarlyChannelInfo> early_channel_info_;
   gpu::SharedImageCapabilities shared_image_capabilities_;
 
   // The tracing ID used for memory allocations associated with this client.

@@ -7,10 +7,13 @@
 #include <stdint.h>
 
 #include "base/run_loop.h"
+#include "base/test/bind.h"
+#include "base/test/scoped_feature_list.h"
 #include "base/test/test_simple_task_runner.h"
 #include "build/build_config.h"
 #include "gpu/command_buffer/common/mailbox.h"
 #include "gpu/command_buffer/common/shared_image_usage.h"
+#include "gpu/config/gpu_finch_features.h"
 #include "gpu/ipc/common/command_buffer_id.h"
 #include "gpu/ipc/common/gpu_channel.mojom.h"
 #include "gpu/ipc/service/gpu_channel_manager.h"
@@ -25,6 +28,31 @@ class GpuChannelTest : public GpuChannelTestCommon {
   GpuChannelTest() : GpuChannelTestCommon(true /* use_stub_bindings */) {}
   ~GpuChannelTest() override = default;
 };
+
+TEST_F(GpuChannelTest, EarlyChannelReturnsDeviceInfoFromCreation) {
+  base::test::ScopedFeatureList feature_list;
+  feature_list.InitAndEnableFeature(features::kSendGPUChannelEarly);
+  GPUInfo gpu_info;
+  gpu_info.gl_renderer = "original-renderer";
+  GpuFeatureInfo feature_info;
+  feature_info.disabled_extensions = "original-extension";
+  GpuChannel* channel = channel_manager()->EstablishChannel(
+      base::UnguessableToken::Create(), /*client_id=*/1, /*client_tracing_id=*/1,
+      viz::mojom::GpuClientType::kRenderer, gpu_info, feature_info);
+  ASSERT_TRUE(channel);
+  gpu_info.gl_renderer.clear();
+  feature_info.disabled_extensions.clear();
+
+  bool received = false;
+  channel->GetGpuChannelForTesting().GetGPUInfo(base::BindLambdaForTesting(
+      [&](const GPUInfo& device, const GpuFeatureInfo& info,
+          const SharedImageCapabilities&) {
+        EXPECT_EQ("original-renderer", device.gl_renderer);
+        EXPECT_EQ("original-extension", info.disabled_extensions);
+        received = true;
+      }));
+  EXPECT_TRUE(received);
+}
 
 TEST_F(GpuChannelTest, CreateOffscreenCommandBuffer) {
   int32_t kClientId = 1;

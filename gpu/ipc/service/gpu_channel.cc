@@ -92,6 +92,11 @@ bool TryCreateDCOMPTexture(
 
 }  // namespace
 
+struct GpuChannel::EarlyChannelInfo {
+  gpu::GPUInfo gpu_info;
+  gpu::GpuFeatureInfo gpu_feature_info;
+};
+
 // This filter does the following:
 // - handles the Nop message used for verifying sync tokens on the IO thread
 // - forwards messages to child message filters
@@ -503,8 +508,8 @@ void GpuChannelMessageFilter::GetGPUInfo(GetGPUInfoCallback callback) {
                             gpu::SharedImageCapabilities());
     return;
   }
-  std::move(callback).Run(gpu_channel_->gpu_info(),
-                          gpu_channel_->gpu_feature_info(),
+  const auto& info = *gpu_channel_->early_channel_info_;
+  std::move(callback).Run(info.gpu_info, info.gpu_feature_info,
                           gpu_channel_->shared_image_capabilities());
 }
 
@@ -720,8 +725,10 @@ GpuChannel::GpuChannel(
       scheduler_(scheduler),
       sync_point_manager_(sync_point_manager),
       client_id_(client_id),
-      gpu_info_(gpu_info),
-      gpu_feature_info_(gpu_feature_info),
+      early_channel_info_(base::FeatureList::IsEnabled(features::kSendGPUChannelEarly)
+                              ? std::make_unique<const EarlyChannelInfo>(
+                                    gpu_info, gpu_feature_info)
+                              : nullptr),
       client_tracing_id_(client_tracing_id),
       task_runner_(task_runner),
       io_task_runner_(io_task_runner),
