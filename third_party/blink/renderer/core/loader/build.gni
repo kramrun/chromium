@@ -211,6 +211,7 @@ blink_core_tests_loader = [
   "resource/multipart_image_resource_parser_test.cc",
   "resource/resource_loader_code_cache_test.cc",
   "resource/script_resource_test.cc",
+  "resource/text_resource_test.cc",
   "resource_load_observer_for_frame_test.cc",
   "threadable_loader_test.cc",
   "threaded_icon_loader_test.cc",
