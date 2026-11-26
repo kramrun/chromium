@@ -471,6 +471,15 @@ void ResourcePool::OnResourceReleased(size_t unique_id,
   DidFinishUsingResource(std::move(*busy_it));
   busy_resources_.erase(busy_it);
 
+  // The display can hold an exported tile past its expiry. The original
+  // eviction task stops when there are no unused tiles, so a late return
+  // needs to arm cleanup even if no further raster work arrives.
+  if (!evict_expired_resources_pending_) {
+    const auto remaining =
+        resource->last_usage() + resource_expiration_delay_ - clock_->NowTicks();
+    ScheduleEvictExpiredResourcesIn(std::max(base::TimeDelta(), remaining));
+  }
+
   UpdateTracingCounters();
 }
 

@@ -308,6 +308,12 @@ TEST_F(ResourcePoolTest, BusyResourcesNotFreed) {
   EXPECT_EQ(40000u, resource_pool_->GetTotalMemoryUsageForTesting());
   EXPECT_EQ(0u, resource_pool_->memory_usage_bytes());
   EXPECT_EQ(0u, resource_pool_->GetBusyResourceCountForTesting());
+
+  // The previous eviction task ran while the display still owned the
+  // resource. Returning it must restart eviction even on an idle compositor.
+  test_task_runner_->RunUntilIdle();
+  EXPECT_EQ(0u, resource_pool_->GetTotalMemoryUsageForTesting());
+  EXPECT_EQ(0u, resource_pool_->GetTotalResourceCountForTesting());
 }
 
 TEST_F(ResourcePoolTest, UnusedResourcesEventuallyFreed) {
