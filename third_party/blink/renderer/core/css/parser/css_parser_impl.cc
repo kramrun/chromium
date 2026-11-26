@@ -495,6 +495,18 @@ ParseSheetResult CSSParserImpl::ParseStyleSheet(
     StyleSheetContents* style_sheet,
     CSSDeferPropertyParsing defer_property_parsing,
     bool allow_import_rules) {
+  return ParseStyleSheet(StyleSheetText(string), context, style_sheet,
+                         defer_property_parsing, allow_import_rules);
+}
+
+ParseSheetResult CSSParserImpl::ParseStyleSheet(
+    const StyleSheetText& source,
+    const CSSParserContext* context,
+    StyleSheetContents* style_sheet,
+    CSSDeferPropertyParsing defer_property_parsing,
+    bool allow_import_rules) {
+  // Keep the decoded backing alive while the tokenizer holds views into it.
+  const String string = source.Get();
   std::optional<LocalFrameMetricsAggregator::ScopedUkmHierarchicalTimer> timer;
   if (context->GetDocument() && context->GetDocument()->View()) {
     if (auto* metrics_aggregator =
@@ -513,7 +525,7 @@ ParseSheetResult CSSParserImpl::ParseStyleSheet(
   CSSParserImpl parser(context, style_sheet);
   if (defer_property_parsing == CSSDeferPropertyParsing::kYes) {
     parser.lazy_state_ = MakeGarbageCollected<CSSLazyParsingState>(
-        context, string, parser.style_sheet_);
+        context, source, parser.style_sheet_);
   }
   ParseSheetResult result = ParseSheetResult::kSucceeded;
   bool first_rule_valid = parser.ConsumeRuleList(

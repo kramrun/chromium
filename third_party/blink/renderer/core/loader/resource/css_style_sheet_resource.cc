@@ -26,6 +26,7 @@
 
 #include "third_party/blink/renderer/core/loader/resource/css_style_sheet_resource.h"
 
+#include "base/feature_list.h"
 #include "base/metrics/histogram_functions.h"
 #include "base/task/single_thread_task_runner.h"
 #include "base/trace_event/trace_event.h"
@@ -36,6 +37,7 @@
 #include "third_party/blink/renderer/core/css/style_sheet_contents.h"
 #include "third_party/blink/renderer/core/execution_context/execution_context.h"
 #include "third_party/blink/renderer/core/frame/web_feature.h"
+#include "third_party/blink/renderer/platform/bindings/parkable_string_manager.h"
 #include "third_party/blink/renderer/platform/heap/cross_thread_persistent.h"
 #include "third_party/blink/renderer/platform/loader/fetch/fetch_parameters.h"
 #include "third_party/blink/renderer/platform/loader/fetch/memory_cache.h"
@@ -52,6 +54,11 @@
 #include "third_party/blink/renderer/platform/wtf/text/text_encoding.h"
 
 namespace blink {
+namespace {
+BASE_FEATURE(kOptimiumParkLargeStyleSheets, base::FEATURE_ENABLED_BY_DEFAULT);
+constexpr size_t kMinParkableSheetBytes = 64 * 1024;
+}  // namespace
+
 CSSStyleSheetResource* CSSStyleSheetResource::Fetch(FetchParameters& params,
                                                     ResourceFetcher* fetcher,
                                                     ResourceClient* client) {
@@ -107,6 +114,10 @@ void CSSStyleSheetResource::OnMemoryDump(
     WebProcessMemoryDump* memory_dump) const {
   Resource::OnMemoryDump(level_of_detail, memory_dump);
   const String name = StrCat({GetMemoryDumpName(), "/style_sheets"});
+  if (const auto* parked = decoded_sheet_text_.Parkable()) {
+    parked->OnMemoryDump(memory_dump, name);
+    return;
+  }
   auto* dump = memory_dump->CreateMemoryAllocatorDump(name);
   dump->AddScalar("size", "bytes", decoded_sheet_text_.CharactersSizeInBytes());
   memory_dump->AddSuballocation(dump->Guid(),
@@ -130,8 +141,14 @@ network::mojom::ReferrerPolicy CSSStyleSheetResource::GetReferrerPolicy()
 const String CSSStyleSheetResource::SheetText(
     const CSSParserContext* parser_context,
     MIMETypeCheck mime_type_check) const {
+  return SheetSource(parser_context, mime_type_check).Get();
+}
+
+StyleSheetText CSSStyleSheetResource::SheetSource(
+    const CSSParserContext* parser_context,
+    MIMETypeCheck mime_type_check) const {
   if (!CanUseSheet(parser_context, mime_type_check))
-    return String();
+    return StyleSheetText();
 
   // Use cached decoded sheet text when available
   if (!decoded_sheet_text_.IsNull()) {
@@ -143,9 +160,9 @@ const String CSSStyleSheetResource::SheetText(
   }
 
   if (!Data() || Data()->empty())
-    return String();
+    return StyleSheetText();
 
-  return DecodedText();
+  return StyleSheetText(DecodedText());
 }
 
 void CSSStyleSheetResource::NotifyFinished() {
@@ -278,11 +295,21 @@ void CSSStyleSheetResource::SaveParsedStyleSheet(StyleSheetContents* sheet) {
 
 void CSSStyleSheetResource::SetDecodedSheetText(
     const String& decoded_sheet_text) {
-  decoded_sheet_text_ = decoded_sheet_text;
+  if (decoded_sheet_text.CharactersSizeInBytes() >= kMinParkableSheetBytes &&
+      base::FeatureList::IsEnabled(kOptimiumParkLargeStyleSheets) &&
+      ParkableStringManager::ShouldPark(*decoded_sheet_text.Impl())) {
+    ParkableString source(decoded_sheet_text.Impl());
+    ParkableStringManager::Instance().AllowForegroundCompression(source);
+    decoded_sheet_text_ = StyleSheetText(source);
+  } else {
+    decoded_sheet_text_ = StyleSheetText(decoded_sheet_text);
+  }
   UpdateDecodedSize();
 }
 
 void CSSStyleSheetResource::UpdateDecodedSize() {
+  // The cache budget uses the logical size. Memory dumps report the current
+  // resident representation without waking a compressed source.
   size_t decoded_size = decoded_sheet_text_.CharactersSizeInBytes();
   if (parsed_style_sheet_cache_)
     decoded_size += parsed_style_sheet_cache_->EstimatedSizeInBytes();

@@ -29,6 +29,7 @@ class StyleRule;
 class StyleRuleBase;
 class StyleRuleKeyframe;
 class StyleSheetContents;
+class StyleSheetText;
 class CSSValue;
 class CSSPrimitiveValue;
 class CSSParserLocalContext;
@@ -55,6 +56,12 @@ class CORE_EXPORT CSSParser {
       const String&,
       CSSDeferPropertyParsing defer_property_parsing =
           CSSDeferPropertyParsing::kNo,
+      bool allow_import_rules = true);
+  static ParseSheetResult ParseSheet(
+      const CSSParserContext*,
+      StyleSheetContents*,
+      const StyleSheetText&,
+      CSSDeferPropertyParsing defer_property_parsing,
       bool allow_import_rules = true);
   // See CSSSelectorParser for lifetime of the returned value.
   static base::span<CSSSelector> ParseSelector(

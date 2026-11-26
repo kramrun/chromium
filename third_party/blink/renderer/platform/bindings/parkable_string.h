@@ -329,6 +329,8 @@ class PLATFORM_EXPORT ParkableStringImpl
     //                            |Lock()|-ing it or calling |ToString()|.
     Age age_ GUARDED_BY(lock_);
     const bool is_8bit_;
+    // Main-thread scheduling hint, shared by all owners of this source.
+    bool allow_foreground_compression_ = false;
     const unsigned length_;
   };
 

@@ -837,6 +837,7 @@ blink_core_sources_css = [
   "style_sheet_collection.h",
   "style_sheet_contents.cc",
   "style_sheet_contents.h",
+  "style_sheet_text.h",
   "style_sheet_list.cc",
   "style_sheet_list.h",
   "style_traversal_root.cc",

@@ -355,7 +355,9 @@ void ParkableStringManager::OnUnparked(ParkableStringImpl* was_parked_string,
   DCHECK(was_parked_string->may_be_parked());
   StringMap* from_map = was_on_disk ? &on_disk_strings_ : &parked_strings_;
   MoveString(was_parked_string, from_map, &unparked_strings_);
-  ScheduleAgingTaskIfNeeded(was_parked_string->CharactersSizeInBytes());
+  ScheduleAgingTaskIfNeeded(
+      was_parked_string->CharactersSizeInBytes(),
+      was_parked_string->metadata_->allow_foreground_compression_);
 }
 
 void ParkableStringManager::ParkAll(ParkableStringImpl::ParkingMode mode) {
@@ -436,7 +438,7 @@ void ParkableStringManager::AgeStringsAndPark(
   using AgeResult = ParkableStringImpl::AgeOrParkResult;
   bool can_make_progress = false;
   for (ParkableStringImpl* str : unparked) {
-    if (foreground && str->CharactersSizeInBytes() < kMinForegroundStringBytes) {
+    if (foreground && !IsForegroundEligible(*str)) {
       continue;
     }
     const auto result = str->MaybeAgeOrParkString();
@@ -470,13 +472,14 @@ void ParkableStringManager::AgeStringsAndPark(
 }
 
 void ParkableStringManager::ScheduleAgingTaskIfNeeded(
-    std::optional<size_t> added_bytes) {
+    std::optional<size_t> added_bytes,
+    bool allow_in_foreground) {
   if (IsPaused() ||
       (!aging_deadline_.is_null() && !initial_background_delay_pending_)) {
     return;
   }
 
-  if (added_bytes ? IsForegroundCompressionOnly() &&
+  if (added_bytes ? IsForegroundCompressionOnly() && !allow_in_foreground &&
                         *added_bytes < kMinForegroundStringBytes
                   : !HasPendingWork()) {
     return;
@@ -646,9 +649,33 @@ bool ParkableStringManager::IsForegroundCompressionOnly() const {
          base::FeatureList::IsEnabled(features::kLessAggressiveParkableString);
 }
 
+void ParkableStringManager::AllowForegroundCompression(
+    const ParkableString& source) {
+  DCHECK(IsMainThread());
+  constexpr size_t kMinHintedSourceBytes = 256 * 1024;
+  if (!source.may_be_parked() ||
+      source.CharactersSizeInBytes() < kMinHintedSourceBytes) {
+    return;
+  }
+  auto& hint = source.Impl()->metadata_->allow_foreground_compression_;
+  if (!hint) {
+    hint = true;
+    ScheduleAgingTaskIfNeeded(source.CharactersSizeInBytes(), true);
+  }
+}
+
+// static
+bool ParkableStringManager::IsForegroundEligible(
+    const ParkableStringImpl& source) {
+  return source.metadata_->allow_foreground_compression_ ||
+         source.CharactersSizeInBytes() >= kMinForegroundStringBytes;
+}
+
 bool ParkableStringManager::HasPendingWork() const {
   if (IsForegroundCompressionOnly()) {
-    return HasUnparkedStringOfSize(kMinForegroundStringBytes);
+    return std::ranges::any_of(unparked_strings_, [](const auto& entry) {
+      return IsForegroundEligible(*entry.value);
+    });
   }
   return !unparked_strings_.empty() || !parked_strings_.empty();
 }

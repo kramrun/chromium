@@ -461,8 +461,8 @@ void StyleSheetContents::ParseAuthorStyleSheet(
        response.IsCorsSameOrigin())
           ? CSSStyleSheetResource::MIMETypeCheck::kLax
           : CSSStyleSheetResource::MIMETypeCheck::kStrict;
-  String sheet_text =
-      cached_style_sheet->SheetText(parser_context_, mime_type_check);
+  StyleSheetText sheet_text =
+      cached_style_sheet->SheetSource(parser_context_, mime_type_check);
 
   source_map_url_ = response.HttpHeaderField(http_names::kSourceMap);
   if (source_map_url_.empty()) {

@@ -13,7 +13,7 @@
 namespace blink {
 
 CSSLazyParsingState::CSSLazyParsingState(const CSSParserContext* context,
-                                         const String& sheet_text,
+                                         const StyleSheetText& sheet_text,
                                          StyleSheetContents* contents)
     : context_(context),
       sheet_text_(sheet_text),

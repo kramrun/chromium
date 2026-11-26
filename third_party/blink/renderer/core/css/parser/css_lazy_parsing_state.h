@@ -7,7 +7,7 @@
 
 #include "third_party/blink/renderer/core/css/css_selector_list.h"
 #include "third_party/blink/renderer/core/css/parser/css_parser_mode.h"
-#include "third_party/blink/renderer/platform/wtf/text/wtf_string.h"
+#include "third_party/blink/renderer/core/css/style_sheet_text.h"
 
 namespace blink {
 
@@ -25,18 +25,18 @@ class StyleSheetContents;
 class CSSLazyParsingState final : public GarbageCollected<CSSLazyParsingState> {
  public:
   CSSLazyParsingState(const CSSParserContext*,
-                      const String& sheet_text,
+                      const StyleSheetText& sheet_text,
                       StyleSheetContents*);
 
   const CSSParserContext* Context();
-  const String& SheetText() const { return sheet_text_; }
+  String SheetText() const { return sheet_text_.Get(); }
 
   void Trace(Visitor*) const;
 
  private:
   Member<const CSSParserContext> context_;
   // Also referenced on the css resource.
-  String sheet_text_;
+  StyleSheetText sheet_text_;
 
   // Weak to ensure lazy state will never cause the contents to live longer than
   // it should (we DCHECK this fact). Normally, the <link> tag will keep the

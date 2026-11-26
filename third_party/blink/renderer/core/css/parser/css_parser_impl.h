@@ -52,6 +52,7 @@ class StyleRulePositionTry;
 class StyleRuleProperty;
 class StyleRuleSupports;
 class StyleSheetContents;
+class StyleSheetText;
 class Element;
 struct KeyframeOffset;
 
@@ -241,6 +242,12 @@ class CORE_EXPORT CSSParserImpl {
       StyleSheetContents*,
       CSSDeferPropertyParsing = CSSDeferPropertyParsing::kNo,
       bool allow_import_rules = true);
+  static ParseSheetResult ParseStyleSheet(
+      const StyleSheetText&,
+      const CSSParserContext*,
+      StyleSheetContents*,
+      CSSDeferPropertyParsing,
+      bool allow_import_rules);
   static CSSSelectorList* ParsePageSelector(CSSParserTokenStream&,
                                             StyleSheetContents*,
                                             const CSSParserContext& context);

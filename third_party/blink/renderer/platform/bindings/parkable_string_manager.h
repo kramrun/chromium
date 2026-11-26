@@ -89,6 +89,10 @@ class PLATFORM_EXPORT ParkableStringManager : public RAILModeObserver,
   // Whether a string is parkable or not. Can be called from any thread.
   static bool ShouldPark(const StringImpl& string);
 
+  // Large read-mostly sources may use the foreground idle budget. The
+  // hint is shared if a second owner registers the same source.
+  void AllowForegroundCompression(const ParkableString&);
+
   static base::TimeDelta AgingInterval();
 
   // According to UMA data (as of 2021-11-09) ~70% of renderers exist for less
@@ -162,7 +166,8 @@ class PLATFORM_EXPORT ParkableStringManager : public RAILModeObserver,
   void RecordStatisticsAfter5Minutes() const;
   void AgeStringsAndPark(base::MemoryReductionTaskContext context);
   void ScheduleAgingTaskIfNeeded(
-      std::optional<size_t> added_bytes = std::nullopt);
+      std::optional<size_t> added_bytes = std::nullopt,
+      bool allow_in_foreground = false);
 
   void RecordUnparkingTime(base::TimeDelta unparking_time) {
     total_unparking_time_ += unparking_time;
@@ -205,6 +210,7 @@ class PLATFORM_EXPORT ParkableStringManager : public RAILModeObserver,
   bool IsPaused() const;
   bool IsForegroundCompressionOnly() const;
   bool HasPendingWork() const;
+  static bool IsForegroundEligible(const ParkableStringImpl&);
   bool HasUnparkedStringOfSize(size_t minimum_bytes) const;
   ParkableStringManager();
 

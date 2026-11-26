@@ -1576,6 +1576,34 @@ TEST_P(ParkableStringTestLessAggressiveMode, CompressColdLargeForegroundSources)
   EXPECT_TRUE(second.Impl()->is_on_disk());
 }
 
+TEST_P(ParkableStringTestLessAggressiveMode, ForegroundHintSharesIdleBudget) {
+  base::test::ScopedFeatureList enable(kOptimiumForegroundStringCompression);
+  auto& manager = ParkableStringManager::Instance();
+  manager.SetRendererBackgrounded(false);
+  manager.OnRAILModeChanged(RAILMode::kLoad);
+  constexpr size_t kSize = 512 * 1024;
+  ParkableString marked(MakeComplexString(kSize).ReleaseImpl());
+  ParkableString copy(marked);
+  ParkableString ordinary(MakeComplexString(kSize + 1).ReleaseImpl());
+  ParkableString tiny(MakeComplexString(64 * 1024).ReleaseImpl());
+  manager.AllowForegroundCompression(copy);
+  manager.AllowForegroundCompression(tiny);
+  task_environment_.FastForwardBy(base::Seconds(16));
+  EXPECT_FALSE(marked.Impl()->is_parked());
+  manager.OnRAILModeChanged(RAILMode::kDefault);
+  task_environment_.FastForwardBy(base::Seconds(16));
+  EXPECT_TRUE(marked.Impl()->is_parked());
+  EXPECT_FALSE(ordinary.Impl()->is_parked());
+  EXPECT_FALSE(tiny.Impl()->is_parked());
+  EXPECT_FALSE(marked.Impl()->is_on_disk());
+  EXPECT_EQ(kSize, copy.ToString().length());
+  EXPECT_FALSE(marked.Impl()->is_parked());
+  task_environment_.FastForwardBy(base::Seconds(16));
+  EXPECT_TRUE(copy.Impl()->is_parked());
+  EXPECT_FALSE(ordinary.Impl()->is_parked());
+  CheckOnlyCpuCostTaskRemains();
+}
+
 TEST_P(ParkableStringTestLessAggressiveMode, LargeSourceShortensInitialDelay) {
   base::test::ScopedFeatureList enable(kOptimiumForegroundStringCompression);
   auto& manager = ParkableStringManager::Instance();

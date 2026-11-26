@@ -118,6 +118,16 @@ ParseSheetResult CSSParser::ParseSheet(
       text, context, style_sheet, defer_property_parsing, allow_import_rules);
 }
 
+ParseSheetResult CSSParser::ParseSheet(
+    const CSSParserContext* context,
+    StyleSheetContents* style_sheet,
+    const StyleSheetText& text,
+    CSSDeferPropertyParsing defer_property_parsing,
+    bool allow_import_rules) {
+  return CSSParserImpl::ParseStyleSheet(
+      text, context, style_sheet, defer_property_parsing, allow_import_rules);
+}
+
 void CSSParser::ParseSheetForInspector(const CSSParserContext* context,
                                        StyleSheetContents* style_sheet,
                                        const String& text,

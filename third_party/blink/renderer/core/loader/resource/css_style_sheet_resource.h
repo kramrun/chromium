@@ -28,6 +28,7 @@
 
 #include "base/task/single_thread_task_runner.h"
 #include "third_party/blink/renderer/core/core_export.h"
+#include "third_party/blink/renderer/core/css/style_sheet_text.h"
 #include "third_party/blink/renderer/core/loader/resource/text_resource.h"
 #include "third_party/blink/renderer/platform/heap/garbage_collected.h"
 #include "third_party/blink/renderer/platform/loader/fetch/text_resource_decoder_options.h"
@@ -61,6 +62,7 @@ class CORE_EXPORT CSSStyleSheetResource final : public TextResource {
 
   const String SheetText(const CSSParserContext*,
                          MIMETypeCheck = MIMETypeCheck::kStrict) const;
+  StyleSheetText SheetSource(const CSSParserContext*, MIMETypeCheck) const;
   StyleSheetContents* CreateParsedStyleSheetFromCache(const CSSParserContext*);
   void SaveParsedStyleSheet(StyleSheetContents*);
   network::mojom::ReferrerPolicy GetReferrerPolicy() const;
@@ -93,7 +95,7 @@ class CORE_EXPORT CSSStyleSheetResource final : public TextResource {
 
   // Decoded sheet text cache is available iff loading this CSS resource is
   // successfully complete.
-  String decoded_sheet_text_;
+  StyleSheetText decoded_sheet_text_;
 
   Member<StyleSheetContents> parsed_style_sheet_cache_;
 };
