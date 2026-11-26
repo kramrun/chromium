@@ -13,6 +13,7 @@
 #include "base/logging.h"
 #include "base/notreached.h"
 #include "base/numerics/byte_conversions.h"
+#include "base/numerics/checked_math.h"
 #include "base/types/to_address.h"
 #include "media/base/decrypt_config.h"
 #include "media/base/media_switches.h"
@@ -252,8 +253,22 @@ void AVC::InsertParamSetsIntoBuffer(std::vector<uint8_t>* buffer,
     }
   }
 
-  buffer->insert(buffer->begin() + byte_offset, param_sets.begin(),
-                 param_sets.end());
+  if (param_sets.size() <= buffer->capacity() - buffer->size()) {
+    buffer->insert(buffer->begin() + byte_offset, param_sets.begin(),
+                   param_sets.end());
+    return;
+  }
+
+  // Completed samples can stay in the demuxer until eviction. When inserting
+  // the final headers requires a new allocation, avoid retaining growth slack.
+  std::vector<uint8_t> sample;
+  sample.reserve(
+      base::CheckAdd(buffer->size(), param_sets.size()).ValueOrDie());
+  const auto [prefix, suffix] = base::span(*buffer).split_at(byte_offset);
+  sample.append_range(prefix);
+  sample.append_range(param_sets);
+  sample.append_range(suffix);
+  buffer->swap(sample);
 }
 
 // static

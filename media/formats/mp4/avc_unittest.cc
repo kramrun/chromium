@@ -718,17 +718,23 @@ TEST_F(AVCConversionTest, InsertParamSetsAnnexB) {
   expected.is_keyframe = true;
 
   for (auto test_case : test_cases) {
-    std::vector<uint8_t> buf;
-    std::vector<SubsampleEntry> subsamples;
+    for (bool reserve_extra : {false, true}) {
+      SCOPED_TRACE(reserve_extra);
+      std::vector<uint8_t> buf;
+      std::vector<SubsampleEntry> subsamples;
 
-    AvcStringToAnnexB(test_case.input, &buf, &subsamples);
+      AvcStringToAnnexB(test_case.input, &buf, &subsamples);
+      if (reserve_extra) {
+        buf.reserve(buf.size() + 64);
+      }
 
-    EXPECT_TRUE(AVC::InsertParamSetsAnnexB(avc_config, &buf, &subsamples))
-        << "'" << test_case.input << "' insert failed.";
-    EXPECT_PRED2(AnalysesMatch, AVC::AnalyzeAnnexB(buf, subsamples), expected)
-        << "'" << test_case.input << "' created invalid AnnexB.";
-    EXPECT_EQ(test_case.expected, AnnexBToString(buf, subsamples))
-        << "'" << test_case.input << "' generated unexpected output.";
+      EXPECT_TRUE(AVC::InsertParamSetsAnnexB(avc_config, &buf, &subsamples))
+          << "'" << test_case.input << "' insert failed.";
+      EXPECT_PRED2(AnalysesMatch, AVC::AnalyzeAnnexB(buf, subsamples), expected)
+          << "'" << test_case.input << "' created invalid AnnexB.";
+      EXPECT_EQ(test_case.expected, AnnexBToString(buf, subsamples))
+          << "'" << test_case.input << "' generated unexpected output.";
+    }
   }
 }
 
