@@ -6,17 +6,21 @@
 
 #include <GLES2/gl2.h>
 
+#include <algorithm>
+#include <iterator>
 #include <sstream>
+#include <string_view>
 
 #include "ui/gl/gl_enums_implementation_autogen.h"
 
 namespace gl {
 
 std::string GLEnums::GetStringEnum(uint32_t value) {
-  for (const auto& entry : kEnumToStringTable) {
-    if (value == entry.value) {
-      return std::string(entry.name);
-    }
+  const auto* entry = std::ranges::lower_bound(kEnumToStringTable, value, {},
+                                               &EnumToString::value);
+  if (entry != std::end(kEnumToStringTable) && entry->value == value) {
+    constexpr std::string_view names(kEnumNames, sizeof(kEnumNames) - 1);
+    return std::string(names.substr(entry->name_offset, entry->name_length));
   }
   std::stringstream ss;
   ss.fill('0');

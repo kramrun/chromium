@@ -4950,7 +4950,7 @@ def SamePrefix(a, b):
 
 def GenerateEnumUtils(out_file, input_filenames):
   enum_re = re.compile(r'\#define\s+(GL_[a-zA-Z0-9_]+)\s+([0-9A-Fa-fx]+)')
-  dict = {}
+  names_by_literal = {}
   for fname in input_filenames:
     lines = open(fname).readlines()
     for line in lines:
@@ -4959,18 +4959,30 @@ def GenerateEnumUtils(out_file, input_filenames):
         name = m.group(1)
         value = m.group(2)
         if len(value) <= 10 and value.startswith('0x'):
-          if value not in dict:
-            dict[value] = name
+          if value not in names_by_literal:
+            names_by_literal[value] = name
           # check our own _CHROMIUM macro conflicts with khronos GL headers.
           # we allow for name duplication if they have the same prefix.
-          elif dict[value] != name and (
-            (name.endswith('_CHROMIUM') or dict[value].endswith('_CHROMIUM'))
-            and not SamePrefix(name, dict[value])
+          elif names_by_literal[value] != name and (
+            (
+              name.endswith('_CHROMIUM')
+              or names_by_literal[value].endswith('_CHROMIUM')
+            )
+            and not SamePrefix(name, names_by_literal[value])
           ):
             raise RuntimeError(
               "code collision: %s and %s have the same code %s"
-              % (dict[value], name, value)
+              % (names_by_literal[value], name, value)
             )
+
+  # The old scan used the first spelling in lexicographic hex order when
+  # multiple literals (e.g. 0x00 and 0x0000) had the same numeric value.
+  names = {}
+  for literal, name in sorted(names_by_literal.items()):
+    names.setdefault(int(literal, 16), name)
+  entries = sorted(names.items())
+  pool_size = sum(len(name) for _, name in entries)
+  offset_type = 'uint16_t' if pool_size <= 0xffff else 'uint32_t'
 
   out_file.write(
     LICENSE_AND_HEADER
@@ -4981,16 +4993,27 @@ def GenerateEnumUtils(out_file, input_filenames):
 
 namespace {
 
-struct EnumToString {
-  uint32_t value;
-  std::string_view name;
-};
-
-static constexpr EnumToString kEnumToStringTable[] = {
+// Store name bytes and offsets separately so the loader can share these
+// read-only tables between processes without relocating a pointer per enum.
+constexpr char kEnumNames[] =
 """
   )
-  for value in sorted(dict):
-    out_file.write('  { %s, "%s", },\n' % (value, dict[value]))
+  for _, name in entries:
+    out_file.write(f'    "{name}"\n')
+  out_file.write(f""";
+
+struct EnumToString {{
+  uint32_t value;
+  {offset_type} name_offset;
+  {offset_type} name_length;
+}};
+
+constexpr EnumToString kEnumToStringTable[] = {{
+""")
+  offset = 0
+  for value, name in entries:
+    out_file.write(f'    {{0x{value:x}, {offset}, {len(name)}}},\n')
+    offset += len(name)
   out_file.write("""};
 
 }  // namespace
