@@ -7,6 +7,10 @@ enabled_features=ChildProcessSecurityPolicyRust,ChildProcessSecurityPolicyRustPr
 case "${OPTIMIUM_MEMORY_MODE:-balanced}" in
   balanced)
     enabled_features="$enabled_features,OptimiumForegroundStringCompression,OptimiumReleaseConsumedCodeCache"
+    # Drop scanout surfaces when the compositor hides this window.
+    if [ -n "${WAYLAND_DISPLAY:-}" ]; then
+      enabled_features="$enabled_features,VizBufferQueueDiscardOnVisibilityChange"
+    fi
     # Keep young JS heaps compact while leaving the total heap adaptive.
     set -- '--js-flags=--memory-saver-mode --max-semi-space-size=4 --invocation-count-for-feedback-allocation=32' \
       --disable-field-trial-config \

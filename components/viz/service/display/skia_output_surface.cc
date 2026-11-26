@@ -14,4 +14,8 @@ SkiaOutputSurface* SkiaOutputSurface::AsSkiaOutputSurface() {
   return this;
 }
 
+void SkiaOutputSurface::DestroyIdleSharedImage(const gpu::Mailbox& mailbox) {
+  DestroySharedImage(mailbox);
+}
+
 }  // namespace viz

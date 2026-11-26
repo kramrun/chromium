@@ -1616,6 +1616,26 @@ void SkiaOutputSurfaceImpl::DestroySharedImage(const gpu::Mailbox& mailbox) {
                  /*need_framebuffer=*/false);
 }
 
+void SkiaOutputSurfaceImpl::DestroyIdleSharedImage(const gpu::Mailbox& mailbox) {
+  DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
+  if (!gpu_tasks_.empty()) {
+    // Keep the image alive until all earlier, unsubmitted work has run.
+    DestroySharedImage(mailbox);
+    return;
+  }
+
+  // No draw may follow this eviction. Submit on the same sequence as swaps
+  // and surface teardown, using the scheduling path valid outside a draw.
+  gpu_task_scheduler_->ScheduleOrRetainGpuTask(
+      base::BindOnce(
+          [](SkiaOutputSurfaceImplOnGpu* impl, gpu::Mailbox mailbox) {
+            impl->MakeCurrent(/*need_framebuffer=*/false);
+            impl->DestroySharedImage(mailbox);
+          },
+          base::Unretained(impl_on_gpu_.get()), mailbox),
+      {});
+}
+
 void SkiaOutputSurfaceImpl::SetSharedImagePurgeable(const gpu::Mailbox& mailbox,
                                                     bool purgeable) {
   auto task =

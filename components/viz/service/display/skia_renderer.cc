@@ -115,6 +115,10 @@ namespace viz {
 
 namespace {
 
+#if BUILDFLAG(IS_LINUX)
+BASE_FEATURE(kOptimiumTrimIdleDisplayBuffer, base::FEATURE_ENABLED_BY_DEFAULT);
+#endif
+
 // Feature to temporarily create a dump in the case where we try and sample from
 // a render pass that has never been drawn to.
 // See: crbug.com/344458294, crbug.com/345673794
@@ -3810,10 +3814,15 @@ std::unique_ptr<BufferQueue> SkiaRenderer::CreateBufferQueue() {
           ? 0
           : output_surface_->capabilities().number_of_buffers;
 
-  auto queue = std::make_unique<BufferQueue>(
+  bool trim_idle_spare = false;
+#if BUILDFLAG(IS_LINUX)
+  trim_idle_spare =
+      number_of_buffers == 3 &&
+      base::FeatureList::IsEnabled(kOptimiumTrimIdleDisplayBuffer);
+#endif
+  return std::make_unique<BufferQueue>(
       skia_output_surface_, skia_output_surface_->GetSurfaceHandle(),
-      number_of_buffers);
-  return queue;
+      number_of_buffers, /*is_protected=*/false, trim_idle_spare);
 }
 
 #if BUILDFLAG(IS_APPLE) || BUILDFLAG(IS_OZONE) || BUILDFLAG(IS_WIN)

@@ -14,6 +14,7 @@
 #include <utility>
 
 #include "base/test/bind.h"
+#include "base/test/task_environment.h"
 #include "build/build_config.h"
 #include "components/viz/test/fake_skia_output_surface.h"
 #include "gpu/command_buffer/common/mailbox.h"
@@ -180,6 +181,84 @@ TEST(BufferQueueStandaloneTest, BufferCreationAndDestruction) {
                                     RenderPassAlphaType::kPremul,
                                     kBufferQueueFormat));
   EXPECT_EQ(expected_mailbox, buffer_queue->GetCurrentBuffer());
+}
+
+class IdleBufferQueueTest : public BufferQueueTest {
+ public:
+  void SetUp() override {
+    BufferQueueTest::SetUp();
+    buffer_queue_ = std::make_unique<BufferQueue>(
+        skia_output_surface_.get(), kFakeSurfaceHandle, 3,
+        /*is_protected=*/false, /*trim_idle_spare=*/true);
+    ASSERT_TRUE(buffer_queue_->Reshape(screen_size, kBufferQueueColorSpace,
+                                       RenderPassAlphaType::kPremul,
+                                       kBufferQueueFormat));
+  }
+
+ protected:
+  base::test::SingleThreadTaskEnvironment tasks_{
+      base::test::TaskEnvironment::TimeSource::MOCK_TIME};
+};
+
+TEST_F(IdleBufferQueueTest, PreservesRotationAndDamageAfterIdle) {
+  SendFullFrame();
+  const auto displayed = buffer_queue_->GetLastSwappedBuffer();
+  const auto next = available_buffers().front()->mailbox;
+  const auto retired = available_buffers().back()->mailbox;
+  const auto damage = buffer_queue_->CurrentBufferDamage();
+  tasks_.FastForwardBy(base::Seconds(11));
+  ASSERT_EQ(2, buffer_queue_->GetCurrentAllocatedBuffers());
+  EXPECT_EQ(displayed, buffer_queue_->GetLastSwappedBuffer());
+  EXPECT_EQ(damage, buffer_queue_->CurrentBufferDamage());
+
+  // The second draw must use the replacement tail before the first swap ack.
+  EXPECT_EQ(next, buffer_queue_->GetCurrentBuffer());
+  EXPECT_EQ(3, buffer_queue_->GetCurrentAllocatedBuffers());
+  buffer_queue_->SwapBuffers();
+  const auto replacement = buffer_queue_->GetCurrentBuffer();
+  EXPECT_NE(replacement, displayed);
+  EXPECT_NE(replacement, retired);
+  EXPECT_NE(replacement, next);
+  EXPECT_EQ(screen_rect, buffer_queue_->CurrentBufferDamage());
+  buffer_queue_->SwapBuffers();
+  tasks_.FastForwardBy(base::Minutes(1));
+  EXPECT_EQ(3, buffer_queue_->GetCurrentAllocatedBuffers());
+  buffer_queue_->SwapBuffersComplete(true);
+  buffer_queue_->SwapBuffersComplete(true);
+  EXPECT_TRUE(CheckUnique());
+}
+
+TEST_F(IdleBufferQueueTest, KeepsAllSlotsWhileSwappingAndRestoresOnEmptySwap) {
+  SendFullFrame();
+  for (int i = 0; i < 6; ++i) {
+    tasks_.FastForwardBy(base::Seconds(4));
+    SendDamagedFrame(small_damage);
+    EXPECT_EQ(3, buffer_queue_->GetCurrentAllocatedBuffers());
+  }
+  tasks_.FastForwardBy(base::Seconds(20));
+  ASSERT_EQ(2, buffer_queue_->GetCurrentAllocatedBuffers());
+  const auto next = available_buffers().front()->mailbox;
+  const auto displayed = buffer_queue_->GetLastSwappedBuffer();
+  buffer_queue_->SwapBuffers();
+  buffer_queue_->SwapBuffersComplete(true);
+  ASSERT_EQ(3u, available_buffers().size());
+  EXPECT_EQ(next, available_buffers().front()->mailbox);
+  EXPECT_EQ(displayed, available_buffers().back()->mailbox);
+  EXPECT_TRUE(CheckUnique());
+}
+
+TEST_F(IdleBufferQueueTest, HandlesExplicitGrowthAndDestruction) {
+  SendFullFrame();
+  tasks_.FastForwardBy(base::Seconds(11));
+  ASSERT_EQ(2, buffer_queue_->GetCurrentAllocatedBuffers());
+  buffer_queue_->EnsureMinNumberOfBuffers(5);
+  EXPECT_EQ(5, buffer_queue_->GetCurrentAllocatedBuffers());
+  SendFullFrame();
+  tasks_.FastForwardBy(base::Minutes(1));
+  EXPECT_EQ(5, buffer_queue_->GetCurrentAllocatedBuffers());
+  buffer_queue_->DestroyBuffers();
+  tasks_.FastForwardBy(base::Minutes(1));
+  EXPECT_EQ(0, buffer_queue_->GetCurrentAllocatedBuffers());
 }
 
 TEST_F(BufferQueueTest, PartialSwapReuse) {

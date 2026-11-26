@@ -24,6 +24,10 @@
 #include "ui/gfx/geometry/rect.h"
 #include "ui/gfx/geometry/size.h"
 
+namespace base {
+class OneShotTimer;
+}
+
 namespace base::trace_event {
 struct MemoryDumpArgs;
 class ProcessMemoryDump;
@@ -42,11 +46,13 @@ class VIZ_SERVICE_EXPORT BufferQueue {
   // Buffers are not allocated until Reshape() is called. |number_of_buffers|
   // specifies the number of buffers that will be allocated, and can be
   // increased by calling EnsureMinNumberOfBuffers() when
-  // |supports_dynamic_frame_buffer_allocation| capability is true.
+  // |supports_dynamic_frame_buffer_allocation| capability is true. Fixed
+  // triple-buffered queues may release their last available image while idle.
   BufferQueue(SkiaOutputSurface* skia_output_surface,
               gpu::SurfaceHandle surface_handle,
               size_t number_of_buffers,
-              bool is_protected = false);
+              bool is_protected = false,
+              bool trim_idle_spare = false);
 
   BufferQueue(const BufferQueue&) = delete;
   BufferQueue& operator=(const BufferQueue&) = delete;
@@ -158,6 +164,10 @@ class VIZ_SERVICE_EXPORT BufferQueue {
   // changed.
   bool SetBufferPurgeable(AllocatedBuffer& buffer, bool purgeable);
 
+  void RestoreSpareBuffer();
+  void ScheduleSpareBufferCheck();
+  void ReleaseUnusedSpareBuffer();
+
   // Allocates |n| buffers and pushes them into |available_buffers_|.
   void AllocateBuffers(size_t n);
 
@@ -212,6 +222,10 @@ class VIZ_SERVICE_EXPORT BufferQueue {
   std::optional<base::ElapsedTimer> destroyed_timer_;
   // Whether or not to allocate these buffers as protected buffers.
   bool is_protected_ = false;
+  const bool trim_idle_spare_;
+  bool spare_retired_ = false;
+  bool swapped_since_check_ = false;
+  std::unique_ptr<base::OneShotTimer> spare_buffer_timer_;
 };
 
 }  // namespace viz

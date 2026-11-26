@@ -8,8 +8,10 @@
 #include <string>
 #include <utility>
 
+#include "base/location.h"
 #include "base/metrics/histogram_macros.h"
 #include "base/strings/stringprintf.h"
+#include "base/timer/timer.h"
 #include "base/trace_event/memory_allocator_dump.h"
 #include "base/trace_event/memory_dump_request_args.h"
 #include "base/trace_event/process_memory_dump.h"
@@ -23,11 +25,13 @@ namespace viz {
 BufferQueue::BufferQueue(SkiaOutputSurface* skia_output_surface,
                          gpu::SurfaceHandle surface_handle,
                          size_t number_of_buffers,
-                         bool is_protected)
+                         bool is_protected,
+                         bool trim_idle_spare)
     : skia_output_surface_(skia_output_surface),
       surface_handle_(surface_handle),
       number_of_buffers_(number_of_buffers),
-      is_protected_(is_protected) {}
+      is_protected_(is_protected),
+      trim_idle_spare_(trim_idle_spare && !is_protected && number_of_buffers == 3) {}
 
 BufferQueue::~BufferQueue() {
   FreeAllBuffers();
@@ -72,6 +76,12 @@ gfx::Rect BufferQueue::CurrentBufferDamage() const {
 }
 
 void BufferQueue::SwapBuffers() {
+  // Even an empty swap can move the displayed image to the available queue.
+  // Restore the missing tail slot before any such change to the rotation.
+  RestoreSpareBuffer();
+  if (spare_buffer_timer_) {
+    swapped_since_check_ = true;
+  }
   if (current_buffer_) {
     current_buffer_->damage = gfx::Rect();
   }
@@ -102,6 +112,10 @@ void BufferQueue::SwapBuffersComplete(bool did_present) {
     // plane, add full damage to ensure that primary plane buffers are fully
     // redrawn.
     UpdateBufferDamage(gfx::Rect(size_));
+  }
+
+  if (trim_idle_spare_ && number_of_buffers_ == 3) {
+    ScheduleSpareBufferCheck();
   }
 
   if (buffers_can_be_purged_) {
@@ -174,6 +188,8 @@ void BufferQueue::FreeAllBuffers() {
     FreeBuffer(std::move(buffer));
   }
   available_buffers_.clear();
+  spare_retired_ = false;
+  spare_buffer_timer_.reset();
 }
 
 void BufferQueue::FreeBuffer(std::unique_ptr<AllocatedBuffer> buffer) {
@@ -192,6 +208,47 @@ bool BufferQueue::SetBufferPurgeable(AllocatedBuffer& buffer, bool purgeable) {
   skia_output_surface_->SetSharedImagePurgeable(buffer.mailbox, purgeable);
   buffer.purgeable = purgeable;
   return true;
+}
+
+void BufferQueue::RestoreSpareBuffer() {
+  if (spare_retired_) {
+    AllocateBuffers(1);
+    spare_retired_ = false;
+  }
+}
+
+void BufferQueue::ScheduleSpareBufferCheck() {
+  if (!displayed_buffer_ || current_buffer_ || !in_flight_buffers_.empty() ||
+      available_buffers_.size() != 2) {
+    return;
+  }
+  if (!spare_buffer_timer_) {
+    spare_buffer_timer_ = std::make_unique<base::OneShotTimer>();
+  } else if (spare_buffer_timer_->IsRunning()) {
+    return;
+  }
+
+  swapped_since_check_ = false;
+  spare_buffer_timer_->Start(FROM_HERE, base::Seconds(10), this,
+                             &BufferQueue::ReleaseUnusedSpareBuffer);
+}
+
+void BufferQueue::ReleaseUnusedSpareBuffer() {
+  if (swapped_since_check_) {
+    ScheduleSpareBufferCheck();
+    return;
+  }
+  if (current_buffer_ || !displayed_buffer_ || !in_flight_buffers_.empty() ||
+      available_buffers_.size() != 2) {
+    return;
+  }
+
+  // Keep the displayed image and the front buffer whose damage may already
+  // have been queried. Recreate the tail in its original position on wake.
+  skia_output_surface_->DestroyIdleSharedImage(
+      available_buffers_.back()->mailbox);
+  available_buffers_.pop_back();
+  spare_retired_ = true;
 }
 
 void BufferQueue::AllocateBuffers(size_t n) {
@@ -217,7 +274,7 @@ void BufferQueue::AllocateBuffers(size_t n) {
 
 std::unique_ptr<BufferQueue::AllocatedBuffer> BufferQueue::GetNextBuffer() {
   RecreateBuffersIfDestroyed();
-
+  RestoreSpareBuffer();
   DCHECK(!available_buffers_.empty());
 
   std::unique_ptr<AllocatedBuffer> buffer =
@@ -262,7 +319,10 @@ void BufferQueue::EnsureMinNumberOfBuffers(size_t n) {
 
   // If Reshape hasn't been called yet we can't allocate the buffers.
   if (!size_.IsEmpty() && !buffers_destroyed_) {
-    AllocateBuffers(n - number_of_buffers_);
+    AllocateBuffers(n - number_of_buffers_ +
+                    static_cast<size_t>(spare_retired_));
+    spare_retired_ = false;
+    spare_buffer_timer_.reset();
   }
   number_of_buffers_ = n;
 }
@@ -271,7 +331,7 @@ int BufferQueue::GetCurrentAllocatedBuffers() const {
   if (size_.IsEmpty() || buffers_destroyed_) {
     return 0;
   }
-  return number_of_buffers_;
+  return number_of_buffers_ - static_cast<size_t>(spare_retired_);
 }
 
 void BufferQueue::OnMemoryDump(

@@ -220,6 +220,10 @@ class VIZ_SERVICE_EXPORT SkiaOutputSurface : public OutputSurface,
 
   virtual void CleanupImageProcessor() = 0;
 #endif
+
+  // Release a returned scanout image when the display has stopped drawing.
+  // This can be called outside the draw-and-swap scheduling scope.
+  virtual void DestroyIdleSharedImage(const gpu::Mailbox& mailbox);
 };
 
 }  // namespace viz
