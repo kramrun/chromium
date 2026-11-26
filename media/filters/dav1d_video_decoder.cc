@@ -6,12 +6,15 @@
 
 #include <errno.h>
 
+#include <algorithm>
 #include <memory>
 #include <utility>
 
 #include "base/check.h"
 #include "base/containers/span.h"
+#include "base/feature_list.h"
 #include "base/sequence_checker.h"
+#include "build/build_config.h"
 #include "media/base/decoder_buffer.h"
 #include "media/base/limits.h"
 #include "media/base/media_log.h"
@@ -26,6 +29,10 @@ extern "C" {
 namespace media {
 
 namespace {
+
+#if BUILDFLAG(IS_LINUX)
+BASE_FEATURE(kOptimiumCompactAv1FrameContexts, base::FEATURE_ENABLED_BY_DEFAULT);
+#endif
 
 // std::unique_ptr release helpers. We need to release both the containing
 // structs as well as refs held within the structures.
@@ -87,7 +94,9 @@ VideoCodec Dav1dVideoDecoder::GetSupportedCodec() const {
   return VideoCodec::kAV1;
 }
 
-DecoderStatus Dav1dVideoDecoder::OpenDecoder(bool low_delay, int n_threads) {
+DecoderStatus Dav1dVideoDecoder::OpenDecoder(bool low_delay,
+                                             int n_threads,
+                                             const gfx::Size& coded_size) {
   DCHECK_CALLED_ON_VALID_SEQUENCE(sequence_checker_);
 
   Dav1dSettings s;
@@ -104,6 +113,16 @@ DecoderStatus Dav1dVideoDecoder::OpenDecoder(bool low_delay, int n_threads) {
   // require at least two buffers before the first frame can be output.
   if (low_delay) {
     s.max_frame_delay = 1;
+#if BUILDFLAG(IS_LINUX)
+  } else if (std::max(coded_size.width(), coded_size.height()) <= 1920 &&
+             std::min(coded_size.width(), coded_size.height()) <= 1080 &&
+             base::FeatureList::IsEnabled(kOptimiumCompactAv1FrameContexts) &&
+             dav1d_get_frame_delay(&s) > 3) {
+    // The thread budget for HD playback is based on three parallel frames.
+    // dav1d can infer four frame contexts from that same number of workers.
+    // Keep all tile workers, but avoid the fourth frame's private scratch.
+    s.max_frame_delay = 3;
+#endif
   }
 
   // Only output the highest spatial layer.

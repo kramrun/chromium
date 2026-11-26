@@ -354,7 +354,7 @@ void DavXdVideoDecoderBase::Initialize(const VideoDecoderConfig& config,
   const int n_threads = VideoDecoder::GetRecommendedThreadCount(
       frame_threads * (tile_threads + 1));
 
-  DecoderStatus status = OpenDecoder(low_delay, n_threads);
+  DecoderStatus status = OpenDecoder(low_delay, n_threads, config.coded_size());
   if (!status.is_ok()) {
     std::move(bound_init_cb).Run(std::move(status));
     return;

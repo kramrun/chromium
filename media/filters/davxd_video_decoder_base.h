@@ -91,7 +91,9 @@ class MEDIA_EXPORT DavXdVideoDecoderBase : public OffloadableVideoDecoder {
  protected:
   // Hooks implemented by codec-specific subclasses.
   virtual VideoCodec GetSupportedCodec() const = 0;
-  virtual DecoderStatus OpenDecoder(bool low_delay, int n_threads) = 0;
+  virtual DecoderStatus OpenDecoder(bool low_delay,
+                                    int n_threads,
+                                    const gfx::Size& coded_size) = 0;
   virtual void CloseCodec() = 0;
   virtual void FlushCodec() = 0;
   virtual bool DecodeBuffer(scoped_refptr<DecoderBuffer> buffer) = 0;

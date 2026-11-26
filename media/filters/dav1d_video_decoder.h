@@ -42,7 +42,9 @@ class MEDIA_EXPORT Dav1dVideoDecoder : public DavXdVideoDecoderBase {
  protected:
   // DavXdVideoDecoderBase implementation.
   VideoCodec GetSupportedCodec() const override;
-  DecoderStatus OpenDecoder(bool low_delay, int n_threads) override;
+  DecoderStatus OpenDecoder(bool low_delay,
+                            int n_threads,
+                            const gfx::Size& coded_size) override;
   void CloseCodec() override;
   void FlushCodec() override;
   bool DecodeBuffer(scoped_refptr<DecoderBuffer> buffer) override;
